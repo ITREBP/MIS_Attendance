@@ -10,7 +10,6 @@ function initializeUserCache() {
   
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return;
-  //Shan Virani
   
   // Read all columns
   const lastCol = sheet.getLastColumn();
@@ -37,6 +36,8 @@ function initializeUserCache() {
   
   CacheService.getScriptCache().put('userDataCache', JSON.stringify(userDataCache), 300);
 }
+
+//Shan
 
 // Us date pe jin class-sections ki NORMAL attendance mark ho chuki hai un ki list
 function getMarkedClassSections(date) {
