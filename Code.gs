@@ -4101,3 +4101,177 @@ function getRecName(recId) {
     return null;
   }
 }
+
+// ================= EPISODIC EVENTS (CRUD) =================
+const EPISODIC_EVENTS_SHEET = 'Episodic_Events';
+const EPISODIC_EVENTS_HEADERS = ['Event_ID','Event_Name','Event_Date','Category','Hours','Class_Sections','Username','REC_ID','Timestamp'];
+
+// Sheet get-or-create (headers ke saath auto-banati hai agar mojood nahi)
+function getOrCreateEpisodicEventsSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(EPISODIC_EVENTS_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(EPISODIC_EVENTS_SHEET);
+    sheet.getRange(1, 1, 1, EPISODIC_EVENTS_HEADERS.length).setValues([EPISODIC_EVENTS_HEADERS]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function normalizeYMD_(v) {
+  if (!v) return '';
+  try { return new Date(v).toLocaleDateString('en-CA'); } catch (e) { return String(v); }
+}
+
+// CREATE
+function createEpisodicEvent(payload) {
+  // payload = { eventName, date, category, hours, classSections:[...], username, recId }
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('System busy. Please try again.');
+  try {
+    if (!payload || !payload.eventName || !payload.date || !payload.category ||
+        !payload.hours || !payload.classSections || payload.classSections.length === 0) {
+      throw new Error('All fields are required.');
+    }
+    const sheet = getOrCreateEpisodicEventsSheet_();
+    sheet.appendRow([
+      Utilities.getUuid(),
+      payload.eventName,
+      payload.date,                        // YYYY-MM-DD
+      payload.category,
+      payload.hours,
+      payload.classSections.join(','),
+      payload.username,
+      payload.recId || '',
+      new Date().toLocaleString()
+    ]);
+    SpreadsheetApp.flush();
+    return { success: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// LIST (sirf isi user ke banaye events)
+function getEpisodicEvents(username) {
+  const sheet = getOrCreateEpisodicEventsSheet_();
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+  const h = data[0];
+  const c = {
+    id: h.indexOf('Event_ID'), name: h.indexOf('Event_Name'), date: h.indexOf('Event_Date'),
+    cat: h.indexOf('Category'), hrs: h.indexOf('Hours'), cls: h.indexOf('Class_Sections'),
+    user: h.indexOf('Username')
+  };
+  const out = [];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][c.user]) !== String(username)) continue;
+    out.push({
+      eventId: data[i][c.id],
+      eventName: data[i][c.name],
+      date: normalizeYMD_(data[i][c.date]),
+      category: data[i][c.cat],
+      hours: data[i][c.hrs],
+      classSections: data[i][c.cls]
+    });
+  }
+  return out;
+}
+
+// DELETE (Event_ID se)
+function deleteEpisodicEvent(eventId) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('System busy. Please try again.');
+  try {
+    const sheet = getOrCreateEpisodicEventsSheet_();
+    const data = sheet.getDataRange().getValues();
+    const idCol = data[0].indexOf('Event_ID');
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][idCol]) === String(eventId)) {
+        sheet.deleteRow(i + 1);
+        SpreadsheetApp.flush();
+        return { success: true };
+      }
+    }
+    return { success: false, message: 'Event not found' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Ek date + class-section ke liye events (Episodic Hours page ke dropdown ke liye)
+function getEpisodicEventsForDate(classSection, date) {
+  const sheet = getOrCreateEpisodicEventsSheet_();
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+  const h = data[0];
+  const c = {
+    id: h.indexOf('Event_ID'), name: h.indexOf('Event_Name'), date: h.indexOf('Event_Date'),
+    cat: h.indexOf('Category'), hrs: h.indexOf('Hours'), cls: h.indexOf('Class_Sections')
+  };
+  const target = normalizeYMD_(date);
+  const out = [];
+  for (let i = 1; i < data.length; i++) {
+    if (normalizeYMD_(data[i][c.date]) !== target) continue;
+    const sections = String(data[i][c.cls] || '').split(',').map(s => s.trim());
+    if (sections.indexOf(classSection) === -1) continue;
+    out.push({
+      eventId: data[i][c.id],
+      eventName: data[i][c.name],
+      category: data[i][c.cat],
+      hours: data[i][c.hrs]
+    });
+  }
+  return out;
+}
+
+// Update: sirf Class_Sections change hote hain (baaki fields lock hain)
+function updateEpisodicEvent(eventId, classSections) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('System busy. Please try again.');
+  try {
+    if (!classSections || classSections.length === 0) throw new Error('At least one class section is required.');
+    const sheet = getOrCreateEpisodicEventsSheet_();
+    const data = sheet.getDataRange().getValues();
+    const h = data[0];
+    const idCol = h.indexOf('Event_ID');
+    const clsCol = h.indexOf('Class_Sections');
+    const tsCol = h.indexOf('Timestamp');
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][idCol]) === String(eventId)) {
+        sheet.getRange(i + 1, clsCol + 1).setValue(classSections.join(','));
+        if (tsCol !== -1) sheet.getRange(i + 1, tsCol + 1).setValue(new Date().toLocaleString());
+        SpreadsheetApp.flush();
+        return { success: true };
+      }
+    }
+    return { success: false, message: 'Event not found' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Is event ke liye jin class-sections ki attendance already mark ho chuki hai (lock karne ke liye)
+function getMarkedClassSectionsForEvent(eventName, date) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Student_Attendance');
+  if (!sheet) return [];
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+  const h = data[0];
+  const dateCol = h.indexOf('Date');
+  const classCol = h.indexOf('Class_Section');
+  const typeCol = h.indexOf('Attendance_Type');
+  const eventCol = h.indexOf('Event_Name');
+  if (dateCol === -1 || classCol === -1 || eventCol === -1) return [];
+  const target = normalizeYMD_(date);
+  const marked = new Set();
+  for (let i = 1; i < data.length; i++) {
+    if (typeCol !== -1 && data[i][typeCol] !== 'Episodic') continue;
+    if (String(data[i][eventCol]) !== String(eventName)) continue;
+    let rowDate;
+    try { rowDate = new Date(data[i][dateCol]).toLocaleDateString('en-CA'); } catch (e) { continue; }
+    if (rowDate !== target) continue;
+    if (data[i][classCol]) marked.add(data[i][classCol]);
+  }
+  return Array.from(marked);
+}

@@ -2094,6 +2094,7 @@
         <button class="btn btn-danger d-none" id="batchHoursUpdateBtn" onclick="showBatchHoursUpdateForm()"><i class="fas fa-edit"></i> Batch Hours</button>
         <button class="btn btn-warning d-none" id="episodicAttendanceBtn" onclick="showEpisodicAttendanceForm()"><i class="fas fa-hiking"></i> Episodic Hours</button>
         <button class="btn btn-secondary" onclick="showPreviousAttendanceForm()"><i class="fas fa-history"></i> Previous</button>
+        <button class="btn btn-warning d-none" id="episodicEventBtn" onclick="showEpisodicEventsList()"><i class="fas fa-calendar-plus"></i> Episodic Event</button>
       </div>
     </div>
   </div>
@@ -2414,16 +2415,17 @@
       <small class="text-muted d-block mt-1">Class section is managed from Homepage. Please go back to select a different class.</small>
     </div>
     
-    <div class="row">
-      <div class="col-md-6 mb-3">
-        <label class="form-label">Event Name *</label>
-        <input type="text" class="form-control" id="episodicEventName" required 
-               placeholder="e.g., ACCESS CAMP or Field Trip">
-        <small class="text-muted">Enter event name. Students can be marked for this event only once.</small>
-      </div>
+     <div class="row">
       <div class="col-md-6 mb-3">
         <label class="form-label">Date *</label>
-        <input type="date" class="form-control" id="episodicDate" required>
+        <select class="form-control" id="episodicDate" required></select>
+      </div>
+      <div class="col-md-6 mb-3">
+        <label class="form-label">Event *</label>
+        <select class="form-control" id="episodicEventName" required>
+          <option value="" disabled selected>Select date first</option>
+        </select>
+        <small class="text-muted">Events will appear here after you select a date.</small>
       </div>
     </div>
 
@@ -2435,32 +2437,8 @@
       Hours Status: <span id="episodicHoursStatusText">Checking...</span>
     </div>
   </div>
-</div>
-    
-    <div class="row">
-      <div class="col-md-6 mb-3">
-        <label class="form-label">Category *</label>
-        <select class="form-control" id="episodicCategory" required>
-          <option value="" disabled selected>Select Category</option>
-        </select>
-      </div>
-      <div class="col-md-6 mb-3">
-        <label class="form-label">Hours *</label>
-        <div class="d-flex gap-2 align-items-center">
-          <select class="form-control" id="episodicHoursSelect" style="flex:2;">
-            <option value="" disabled selected>Select Hours</option>
-          </select>
-          <div class="form-check" id="customHoursCheckboxContainer" style="display: none;">
-            <input type="checkbox" class="form-check-input" id="episodicCustomHours">
-            <label class="form-check-label" for="episodicCustomHours">Custom Hours</label>
-          </div>
-        </div>
-        <input type="number" class="form-control mt-2" id="episodicCustomHoursInput" 
-               style="display: none;" placeholder="Enter custom hours" min="0.5" step="0.5">
-        <small class="text-muted" id="episodicHoursHelp"></small>
-      </div>
-    </div>
-    
+</div> 
+        
     <div class="attendance-summary mb-3">
   <div class="summary-item summary-present">
     <i class="fas fa-check-circle"></i><br>
@@ -2496,6 +2474,40 @@
   </div>
 </div>
 
+  <!-- EPISODIC EVENTS LIST PAGE -->
+  <div id="episodicEventsContainer" class="card d-none">
+    <div class="card-header" style="background: linear-gradient(135deg, #f57c00, #ef6c00);">
+      <h3><i class="fas fa-calendar-check"></i> Episodic Events</h3>
+    </div>
+    <div class="card-body">
+      <div class="nav-bar">
+        <button class="nav-btn" onclick="handleNavigation('welcomeContainer')"><i class="fas fa-home"></i></button>
+        <button class="nav-btn" onclick="showLogoutPopup()"><i class="fas fa-sign-out-alt"></i></button>
+      </div>
+
+      <button class="btn btn-primary btn-block mb-3" onclick="openEpisodicEventPopup()">
+        <i class="fas fa-plus"></i> Create Event
+      </button>
+
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Event Name</th>
+              <th>Date</th>
+              <th>Category</th>
+              <th>Hours</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="episodicEventsTableBody">
+            <tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- POPUPS -->
   <div class="modal-backdrop" id="modalBackdrop"></div>
   <div class="popup" id="popupMessage"><h4 id="popupTitle"></h4><p id="popupText"></p><button class="btn btn-primary mt-2" onclick="closePopup()">OK</button></div>
@@ -2512,6 +2524,48 @@
   
   <div id="singleHoursSetupPopup" class="password-popup" style="display: none;"><h3><i class="fas fa-clock me-2"></i>Set Hours and Category</h3><p><strong id="setupClassSection"></strong> on <strong id="setupDate"></strong></p><form id="singleHoursForm"><div class="mb-3"><label class="form-label">Category</label><select id="setupCategory" class="form-control" required><option disabled selected>Loading...</option></select></div><div class="mb-3"><label class="form-label">Hours</label><select id="setupHours" class="form-control" required><option disabled selected>Loading...</option></select></div><div class="d-flex gap-2"><button type="button" class="btn btn-secondary" onclick="closeSingleHoursSetup()">Cancel</button><button type="submit" class="btn btn-primary">Save & Continue</button></div></form></div>
   <div id="batchHoursUpdatePopup" class="password-popup" style="display: none;"><h3><i class="fas fa-clock me-2"></i>Batch Hours Update</h3><form id="batchHoursUpdateForm"><div class="mb-3"><label>Date</label><input type="date" class="form-control" id="batchUpdateDate" required></div><div class="mb-3"><label>Class Section</label><select class="form-control" id="batchUpdateClassSection" required></select></div><div class="mb-3"><label>New Hours</label><select class="form-control" id="batchUpdateHours" required></select></div><div class="mb-3"><label>New Category</label><select class="form-control" id="batchUpdateCategory" required></select></div><div class="d-flex gap-2"><button type="button" class="btn btn-secondary" onclick="closeBatchHoursUpdatePopup()">Cancel</button><button type="submit" class="btn btn-primary">Update Batch Hours</button></div></form></div>
+    <!-- CREATE EPISODIC EVENT POPUP -->
+  <div id="episodicEventPopup" class="password-popup" style="display:none; width:460px; max-height:90vh; overflow-y:auto;">
+    <h3><i class="fas fa-calendar-plus me-2"></i>Create Episodic Event</h3>
+    <form id="episodicEventForm">
+      <div class="mb-3">
+        <label class="form-label">Event Name *</label>
+        <input type="text" class="form-control" id="eventPopupName" required placeholder="e.g., ACCESS CAMP">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Date *</label>
+        <select class="form-control" id="eventPopupDate" required></select>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Category *</label>
+        <select class="form-control" id="eventPopupCategory" required>
+          <option value="" disabled selected>Select Category</option>
+        </select>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Hours *</label>
+        <div class="d-flex gap-2 align-items-center">
+          <select class="form-control" id="eventPopupHours" style="flex:2;">
+            <option value="" disabled selected>Select Hours</option>
+          </select>
+          <div class="form-check" id="eventCustomHoursContainer" style="display:none;">
+            <input type="checkbox" class="form-check-input" id="eventCustomHours">
+            <label class="form-check-label" for="eventCustomHours">Custom</label>
+          </div>
+        </div>
+        <input type="number" class="form-control mt-2" id="eventCustomHoursInput" style="display:none;" placeholder="Enter custom hours" min="0.5" step="0.5">
+        <small class="text-muted" id="eventHoursHelp"></small>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Class Sections * (Ctrl/Cmd+Click for multiple)</label>
+        <select class="form-control batch-class-select" id="eventPopupClassSections" multiple size="5"></select>
+      </div>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-secondary" onclick="closeEpisodicEventPopup()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Event</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <script>
@@ -2532,7 +2586,11 @@ let episodicStudentData = [];
 let episodicSelectedStatuses = new Map(); // Stores 'Present' or 'Not Applicable' for each student
 let pendingEpisodicDate = null; 
 let currentEventName = '';  // Store current event name for updates
-
+let episodicEventsForDate = [];        // events for the selected date + class
+let selectedEpisodicEvent = null;
+let episodicEventsListData = [];       // events shown in the Episodic Events screen
+let editingEventId = null;             // set when editing (null = create mode)
+let episodicEditMarked = []; 
 function showPasswordPopupForEpisodic(date) {
   pendingEpisodicDate = date;
   
@@ -2598,71 +2656,108 @@ function showPasswordPopupForEpisodic(date) {
 }
 
 function showEpisodicAttendanceForm() {
-  // Check if class is selected from dashboard
-  if (!currentUser.classSection) {
+  if (!currentUser || !currentUser.classSection) {
     showPopup("Error", "Please select a class from Dashboard first.");
     return;
   }
-  
-  // Display current class (read-only, from dashboard)
-  document.getElementById("episodicCurrentClass").innerHTML = 
-    `<strong>${currentUser.classSection}</strong> <span class="text-muted">(from Dashboard)</span>`;
-  
-  // Set date to today by default
-  document.getElementById("episodicDate").value = getTodayDate();
-  
-  // Clear event name input
-  document.getElementById("episodicEventName").value = '';
-  
-  // ===== ADD THIS: RESTORE LAST USED VALUES =====
-  //const lastEventName = sessionStorage.getItem('lastEpisodicEventName');
-  //const lastDate = sessionStorage.getItem('lastEpisodicDate');
-  //const lastCategory = sessionStorage.getItem('lastEpisodicCategory');
-  //const lastHours = sessionStorage.getItem('lastEpisodicHours');
-  
-  //if (lastEventName) {
-  //  document.getElementById("episodicEventName").value = lastEventName;
- // }
-  //if (lastDate) {
-    //document.getElementById("episodicDate").value = lastDate;
-  //}
-    // ===========================================
 
-  //if (lastCategory) {
-    //const categorySelect = document.getElementById("episodicCategory");
-    // Wait for categories to load then set value
-   // setTimeout(() => {
-    //  if (categorySelect.querySelector(`option[value="${lastCategory}"]`)) {
-    //    categorySelect.value = lastCategory;
-    //  }
-   // }, 500);
-  //}
-  //if (lastHours) {
-   // const hoursSelect = document.getElementById("episodicHoursSelect");
-   // setTimeout(() => {
-    //  if (hoursSelect.querySelector(`option[value="${lastHours}"]`)) {
-      //  hoursSelect.value = lastHours;
-    //  }
-   // }, 500);
- // }
-  // ===== END OF ADDED CODE =====
-  
+  // Show current class (read-only, from dashboard)
+  document.getElementById("episodicCurrentClass").innerHTML =
+    `<strong>${currentUser.classSection}</strong> <span class="text-muted">(from Dashboard)</span>`;
+
   // Reset tracking
   episodicSelectedStatuses.clear();
   episodicStudentData = [];
-  
-  // Load categories and hours
-  loadEpisodicCategories();
-  loadEpisodicHoursConfig();
-  
+  episodicEventsForDate = [];
+  selectedEpisodicEvent = null;
+  document.getElementById("episodicStudentList").innerHTML = "";
+  document.getElementById("episodicHoursStatus").classList.add("d-none");
+  document.getElementById("episodicTotalCount").textContent = 0;
+  document.getElementById("episodicTotalCount2").textContent = 0;
+  updateEpisodicCounters();
+
   // Show the page
   handleNavigation("episodicAttendancePage");
-  
-  // Load student list
-  loadEpisodicStudentList();
 
-  // Check hours status
-  checkEpisodicHoursStatus();
+  // Populate date dropdown (today + allowed previous, ascending), then load events
+  populateEpisodicDates();
+}
+
+// Date dropdown: today + allowed previous dates, ascending (no future, no password)
+function populateEpisodicDates() {
+  const sel = document.getElementById("episodicDate");
+  const today = getTodayDate();
+  google.script.run
+    .withSuccessHandler(dates => {
+      const prev = (dates || []).filter(d => d < today);            // only past allowed dates
+      const all = Array.from(new Set([...prev, today])).sort();     // YYYY-MM-DD sorts ascending
+      sel.innerHTML = "";
+      all.forEach(d => sel.appendChild(new Option(formatDateDMY(d) + (d === today ? " (Today)" : ""), d)));
+      sel.value = today;                 // default to today
+      loadEpisodicEventsForDate();       // load events for the default date
+    })
+    .withFailureHandler(() => {
+      sel.innerHTML = "";
+      sel.appendChild(new Option(formatDateDMY(today) + " (Today)", today));
+      sel.value = today;
+      loadEpisodicEventsForDate();
+    })
+    .getAllowedPreviousDates(currentUser.username);
+}
+
+// After a date is chosen, fill the Event dropdown from the Episodic_Events sheet
+function loadEpisodicEventsForDate() {
+  const classSection = currentUser ? currentUser.classSection : null;
+  const date = document.getElementById("episodicDate").value;
+  const eventSelect = document.getElementById("episodicEventName");
+  if (!classSection || !date) return;
+
+  // Reset event + student area
+  selectedEpisodicEvent = null;
+  episodicStudentData = [];
+  episodicSelectedStatuses.clear();
+  document.getElementById("episodicStudentList").innerHTML = "";
+  document.getElementById("episodicHoursStatus").classList.add("d-none");
+  document.getElementById("episodicTotalCount").textContent = 0;
+  document.getElementById("episodicTotalCount2").textContent = 0;
+  updateEpisodicCounters();
+  eventSelect.innerHTML = '<option value="" disabled selected>Loading events...</option>';
+
+  google.script.run
+    .withSuccessHandler(events => {
+      episodicEventsForDate = events || [];
+      if (episodicEventsForDate.length === 0) {
+        eventSelect.innerHTML = '<option value="" disabled selected>No events for this date</option>';
+        showFeedback("No events found for this date. Please create one from 'Episodic Event' first.", "alert-warning", "episodicAttendanceFeedback");
+        return;
+      }
+      eventSelect.innerHTML = '<option value="" disabled selected>Select Event</option>';
+      episodicEventsForDate.forEach(ev => {
+        eventSelect.appendChild(new Option(`${ev.eventName} (${ev.hours} hrs, ${ev.category})`, ev.eventId));
+      });
+    })
+    .withFailureHandler(err => {
+      eventSelect.innerHTML = '<option value="" disabled selected>Error loading events</option>';
+      showPopup("Error", err.message);
+    })
+    .getEpisodicEventsForDate(classSection, date);
+}
+
+// When an event is selected: remember its hours/category and load its students
+function onEpisodicEventChange() {
+  const eventId = document.getElementById("episodicEventName").value;
+  selectedEpisodicEvent = episodicEventsForDate.find(e => String(e.eventId) === String(eventId)) || null;
+  if (!selectedEpisodicEvent) return;
+
+  // Show the event's hours/category (read-only) in the status banner
+  const statusDiv = document.getElementById("episodicHoursStatus");
+  const statusText = document.getElementById("episodicHoursStatusText");
+  statusDiv.classList.remove("d-none", "alert-warning", "alert-danger");
+  statusDiv.classList.add("alert-success");
+  statusText.innerHTML = `<i class="fas fa-check-circle"></i> ${selectedEpisodicEvent.hours} hours (${selectedEpisodicEvent.category})`;
+
+  // Load students for this event
+  loadEpisodicStudentList();
 }
 
 function loadEpisodicCategories() {
@@ -2739,7 +2834,7 @@ function loadEpisodicStudentList() {
   
 const classSection = currentUser ? currentUser.classSection : null;
   const date = document.getElementById("episodicDate").value;
-  const eventName = document.getElementById("episodicEventName").value.trim();
+  const eventName = selectedEpisodicEvent ? selectedEpisodicEvent.eventName : '';
   
   if (!classSection || !date) {
     console.log("Missing class or date");
@@ -2785,7 +2880,6 @@ const classSection = currentUser ? currentUser.classSection : null;
       } else if (eventName) {
         showFeedback(`No existing attendance found for "${eventName}". All students default to Not Applicable.`, "alert-info", "episodicAttendanceFeedback");
       }
-            checkEpisodicHoursStatus();
     })
     .withFailureHandler(err => {
       showLoading(false);
@@ -3009,172 +3103,364 @@ function filterEpisodicStudentList() {
 }
 
 function submitEpisodicAttendance() {
-  const eventName = document.getElementById("episodicEventName").value.trim();
   const classSection = currentUser.classSection;
   const date = document.getElementById("episodicDate").value;
-  const category = document.getElementById("episodicCategory").value;
-  
-  let hours, isCustomHours = false;
-  const customCheckbox = document.getElementById("episodicCustomHours");
-  const customInput = document.getElementById("episodicCustomHoursInput");
-  const hoursSelect = document.getElementById("episodicHoursSelect");
-  
-  if (customCheckbox && customCheckbox.checked) {
-    hours = customInput.value;
-    isCustomHours = true;
-    if (!hours || hours <= 0) {
-      showPopup("Error", "Please enter valid hours");
-      return;
-    }
-  } else {
-    hours = hoursSelect.value;
-    if (!hours) {
-      showPopup("Error", "Please select hours");
-      return;
-    }
-  }
-  
-  if (!eventName) {
-    showPopup("Error", "Please enter event name");
+
+  if (!selectedEpisodicEvent) {
+    showPopup("Error", "Please select an event first.");
     return;
   }
-  
   if (!classSection) {
     showPopup("Error", "No class selected. Please go back to Dashboard and select a class.");
     return;
   }
-  
   if (!date) {
-    showPopup("Error", "Please select date");
+    showPopup("Error", "Please select a date.");
     return;
   }
-  
-  if (!category) {
-    showPopup("Error", "Please select category");
+
+  const eventName = selectedEpisodicEvent.eventName;
+  const category = selectedEpisodicEvent.category;
+  const hours = selectedEpisodicEvent.hours;
+
+  // Build status array for ALL students (Present AND Not Applicable)
+  const studentStatuses = [];
+  for (const [studentId, status] of episodicSelectedStatuses.entries()) {
+    studentStatuses.push({ studentId: studentId, status: status });
+  }
+  if (studentStatuses.length === 0) {
+    showPopup("Error", "No students found for this class.");
     return;
   }
-  
-  // ========================================================
-  // NEW: CLIENT-SIDE HOURS VALIDATION
-  // Check if hours are set in Daily_Hours_Setup before proceeding
-  // ========================================================
-  showLoading(true, "Checking hours configuration...");
-  
-google.script.run
-  .withSuccessHandler(hoursCheck => {
-    showLoading(false);
-    if (!hoursCheck.exists) {
-      showPopup("Info", `Using your selected hours: ${hours} hours (${category})`);
-    } else {
-      showPopup("Info", `Using pre-configured hours: ${hoursCheck.hours} hours (${hoursCheck.category})`);
-    }
-    continueEpisodicSubmission();
-  })
-  .withFailureHandler(err => {
-    showLoading(false);
-    showPopup("Warning", "Could not verify hours. Continuing with your selection.");
-    continueEpisodicSubmission();
-  })
-  .checkDailyHours(date, classSection);
-  
-  // Continue with actual submission after hours validation passes
-  function continueEpisodicSubmission() {
-    // Build array for ALL students with their statuses (BOTH Present AND Not Applicable)
-    const studentStatuses = [];
-    for (const [studentId, status] of episodicSelectedStatuses.entries()) {
-      studentStatuses.push({ 
-        studentId: studentId, 
-        status: status 
-      });
-    }
-    
-    if (studentStatuses.length === 0) {
-      showPopup("Error", "No students found for this class");
-      return;
-    }
-    
-    // Show confirmation with counts
-    const presentCount = studentStatuses.filter(s => s.status === 'Present').length;
-    const notApplicableCount = studentStatuses.filter(s => s.status === 'Not Applicable').length;
-    
-    showLoading(true, `Saving episodic attendance (${presentCount} Present, ${notApplicableCount} Not Applicable)...`);
-    
-    google.script.run
-      .withSuccessHandler(result => {
-  showLoading(false);
-  if (result.success) {
-    // Save the current event name to localStorage or session
-   // sessionStorage.setItem('lastEpisodicEventName', eventName);
-    //sessionStorage.setItem('lastEpisodicDate', date);
-   // sessionStorage.setItem('lastEpisodicCategory', category);
-   // sessionStorage.setItem('lastEpisodicHours', hours);
-    
-    showPopup("Success", `Episodic attendance saved!\n\nPresent: ${result.presentCount}\nNot Applicable: ${result.notApplicableCount}`);
-    showSubmissionPopup();
-  } else {
-    showPopup("Error", result.message || "Failed to save attendance");
-  }
-})
-      .withFailureHandler(err => {
-        showLoading(false);
-        let errorMsg = err.message;
-        // Provide user-friendly error messages
-        if (errorMsg.includes('Hours and category must be set')) {
-          errorMsg = 'Hours and category are not configured for this date. Please contact administrator or set up hours first.';
-        } else if (errorMsg.includes('does not have permission')) {
-          errorMsg = 'You do not have permission to mark episodic attendance.';
-        } else if (errorMsg.includes('No active term found')) {
-          errorMsg = 'No active academic term found for this class on the selected date.';
-        } else if (errorMsg.includes('INACTIVE')) {
-          errorMsg = 'The academic term for this class is inactive. Please contact administrator.';
-        } else if (errorMsg.includes('outside allowed time')) {
-          errorMsg = 'Attendance can only be marked during your scheduled time.';
-        }
-        showPopup("Error", errorMsg);
-      })
-      .markEpisodicAttendance(studentStatuses, classSection, date, currentUser.username, eventName, category, hours, isCustomHours, currentUser.recId);
-  }
+
+  const presentCount = studentStatuses.filter(s => s.status === 'Present').length;
+  const notApplicableCount = studentStatuses.filter(s => s.status === 'Not Applicable').length;
+
+  showLoading(true, `Saving episodic attendance (${presentCount} Present, ${notApplicableCount} Not Applicable)...`);
+
+  google.script.run
+    .withSuccessHandler(result => {
+      showLoading(false);
+      if (result && result.success) {
+        showPopup("Success", `Episodic attendance saved!\n\nPresent: ${result.presentCount}\nNot Applicable: ${result.notApplicableCount}`);
+        showSubmissionPopup();
+      } else {
+        showPopup("Error", (result && result.message) || "Failed to save attendance");
+      }
+    })
+    .withFailureHandler(err => {
+      showLoading(false);
+      let errorMsg = err.message;
+      if (errorMsg.includes('does not have permission')) {
+        errorMsg = 'You do not have permission to mark episodic attendance.';
+      } else if (errorMsg.includes('No active term found')) {
+        errorMsg = 'No active academic term found for this class on the selected date.';
+      } else if (errorMsg.includes('INACTIVE')) {
+        errorMsg = 'The academic term for this class is inactive. Please contact administrator.';
+      } else if (errorMsg.includes('outside allowed time')) {
+        errorMsg = 'Attendance can only be marked during your scheduled time.';
+      }
+      showPopup("Error", errorMsg);
+    })
+    .markEpisodicAttendance(studentStatuses, classSection, date, currentUser.username, eventName, category, hours, false, currentUser.recId);
 }
-// Add event listeners for class and date changes
-//document.getElementById("episodicClassSection")?.addEventListener("change", loadEpisodicStudentList);
-// Add event listener for date change with permission check
-document.getElementById("episodicDate")?.addEventListener("change", function() {
-  const selectedDate = this.value;
+
+// Episodic date/event change listeners are wired in setupEpisodicEventListeners()
+
+// =============== EPISODIC EVENTS (LIST) ===============
+function showEpisodicEventsList() {
+  if (!userPermissions.canMarkEpisodic) return showPopup("Error", "No permission");
+  if (!currentUser) return showPopup("Error", "Please login again.");
+  handleNavigation("episodicEventsContainer");
+  loadEpisodicEvents();
+}
+
+function loadEpisodicEvents() {
+  const tbody = document.getElementById("episodicEventsTableBody");
+  tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>`;
+  google.script.run
+        .withSuccessHandler(events => { episodicEventsListData = events || []; renderEpisodicEventsList(episodicEventsListData); })
+    .withFailureHandler(err => {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Error: ${escapeHtml(err.message)}</td></tr>`;
+    })
+    .getEpisodicEvents(currentUser.username);
+}
+
+function renderEpisodicEventsList(events) {
+  const tbody = document.getElementById("episodicEventsTableBody");
+  if (!events || events.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">No events created yet</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = "";
+  events.forEach(ev => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(ev.eventName)}</td>
+      <td>${formatDateDMY(ev.date)}</td>
+      <td>${escapeHtml(ev.category)}</td>
+      <td>${escapeHtml(String(ev.hours))}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-sm btn-warning" title="Edit" onclick="editEpisodicEvent('${ev.eventId}')"><i class="fas fa-edit"></i></button>
+        <button class="btn btn-sm btn-danger" title="Delete" onclick="confirmDeleteEpisodicEvent('${ev.eventId}', '${escapeHtml(ev.eventName)}')"><i class="fas fa-trash"></i></button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// YYYY-MM-DD  ->  DD-MM-YYYY  (Step 5 mein bhi use hoga)
+function formatDateDMY(ymd) {
+  if (!ymd) return "";
+  const p = String(ymd).split("-");
+  return (p.length === 3) ? `${p[2]}-${p[1]}-${p[0]}` : ymd;
+}
+
+function confirmDeleteEpisodicEvent(eventId, eventName) {
+  if (!confirm(`Delete event "${eventName}"?`)) return;
+  showLoading(true, "Deleting...");
+  google.script.run
+    .withSuccessHandler(res => {
+      showLoading(false);
+      if (res && res.success) {
+        showPopup("Success", "Event deleted");
+        loadEpisodicEvents();
+      } else {
+        showPopup("Error", (res && res.message) || "Delete failed");
+      }
+    })
+    .withFailureHandler(err => { showLoading(false); showPopup("Error", err.message); })
+    .deleteEpisodicEvent(eventId);
+}
+
+function editEpisodicEvent(eventId) {
+  const ev = episodicEventsListData.find(e => String(e.eventId) === String(eventId));
+  if (!ev) return showPopup("Error", "Event not found. Please reopen the list.");
+
+  editingEventId = eventId;
+  episodicEditMarked = [];
+
+  // Title + read-only mode
+  document.querySelector('#episodicEventPopup h3').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Episodic Event';
+  document.querySelector('#episodicEventPopup button[type="submit"]').textContent = 'Update Event';
+  setEpisodicEventPopupMode(true);   // name/date/category/hours read-only
+
+  // Prefill read-only fields
+  document.getElementById("eventPopupName").value = ev.eventName;
+  document.getElementById("eventPopupDate").innerHTML = `<option>${formatDateDMY(ev.date)}</option>`;
+  document.getElementById("eventPopupCategory").innerHTML = `<option>${escapeHtml(ev.category)}</option>`;
+  document.getElementById("eventPopupHours").innerHTML = `<option>${escapeHtml(String(ev.hours))}</option>`;
+
+  // Class sections (editable) — preselect current
+  const clsSel = document.getElementById("eventPopupClassSections");
+  const current = String(ev.classSections || "").split(",").map(s => s.trim()).filter(Boolean);
+  clsSel.innerHTML = "";
+  (assignedClassSections || []).forEach(cs => {
+    const opt = new Option(cs, cs);
+    if (current.indexOf(cs) !== -1) opt.selected = true;
+    clsSel.appendChild(opt);
+  });
+
+  document.getElementById("episodicEventPopup").style.display = "block";
+  document.getElementById("modalBackdrop").classList.add("active");
+
+  // Lock class-sections that already have attendance for this event
+  showLoading(true, "Checking marked classes...");
+  google.script.run
+    .withSuccessHandler(marked => {
+      showLoading(false);
+      episodicEditMarked = marked || [];
+      episodicEditMarked.forEach(cs => {
+        const opt = Array.from(clsSel.options).find(o => o.value === cs);
+        if (opt) { opt.selected = true; opt.disabled = true; opt.text = cs + " (locked - attendance marked)"; }
+      });
+    })
+    .withFailureHandler(() => { showLoading(false); })
+    .getMarkedClassSectionsForEvent(ev.eventName, ev.date);
+}
+
+// =============== EPISODIC EVENTS (CREATE POPUP) ===============
+function openEpisodicEventPopup() {
+  if (!currentUser) return showPopup("Error", "Please login again.");
+  editingEventId = null;
+  episodicEditMarked = [];
+  setEpisodicEventPopupMode(false);   // all fields editable
+  document.querySelector('#episodicEventPopup h3').innerHTML = '<i class="fas fa-calendar-plus me-2"></i>Create Episodic Event';
+  document.querySelector('#episodicEventPopup button[type="submit"]').textContent = 'Save Event';
+  document.getElementById("eventPopupName").value = "";
+  populateEpisodicEventDates();
+  populateEpisodicEventClassSections();
+  populateEpisodicEventCategoriesHours();
+  document.getElementById("episodicEventPopup").style.display = "block";
+  document.getElementById("modalBackdrop").classList.add("active");
+}
+
+// Edit mode: name/date/category/hours read-only; create mode: editable
+function setEpisodicEventPopupMode(isEdit) {
+  ["eventPopupName", "eventPopupDate", "eventPopupCategory", "eventPopupHours"].forEach(id => {
+    document.getElementById(id).disabled = isEdit;
+  });
+  const cc = document.getElementById("eventCustomHoursContainer");
+  const ci = document.getElementById("eventCustomHoursInput");
+  if (isEdit) { if (cc) cc.style.display = "none"; if (ci) ci.style.display = "none"; }
+}
+
+function closeEpisodicEventPopup() {
+  document.getElementById("episodicEventPopup").style.display = "";
+  document.getElementById("modalBackdrop").classList.remove("active");
+}
+
+// Allowed previous + today + 2 future, ascending order (no password)
+function populateEpisodicEventDates() {
+  const sel = document.getElementById("eventPopupDate");
   const today = getTodayDate();
-const classSection = currentUser.classSection;
-  const eventName = document.getElementById("episodicEventName").value.trim();
-  
-  if (selectedDate === today) {
-    loadEpisodicStudentList();
-  } else if (selectedDate < today) {
-    // First check if term exists for this date
-    showLoading(true, "Checking term validity...");
-    google.script.run
-      .withSuccessHandler(term => {
-        showLoading(false);
-        if (term) {
-          showPasswordPopupForEpisodic(selectedDate);
+  const base = new Date(today + "T00:00:00");
+  const future = [];
+  for (let i = 0; i <= 2; i++) {
+    const d = new Date(base);
+    d.setDate(base.getDate() + i);
+    future.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+  }
+  sel.innerHTML = '<option value="" disabled selected>Loading dates...</option>';
+  google.script.run
+    .withSuccessHandler(dates => {
+      const prev = (dates || []).filter(d => d < today);
+      const all = Array.from(new Set([...prev, ...future])).sort();   // ascending
+      sel.innerHTML = "";
+      all.forEach(d => {
+        let label = formatDateDMY(d);
+        if (d === today) label += " (Today)";
+        else if (d < today) label += " (Previous)";
+        sel.appendChild(new Option(label, d));
+      });
+      sel.value = today;
+    })
+    .withFailureHandler(() => {
+      sel.innerHTML = "";
+      future.forEach(d => sel.appendChild(new Option(formatDateDMY(d) + (d === today ? " (Today)" : ""), d)));
+      sel.value = today;
+    })
+    .getAllowedPreviousDates(currentUser.username);
+}
+
+function populateEpisodicEventClassSections() {
+  const sel = document.getElementById("eventPopupClassSections");
+  sel.innerHTML = "";
+  (assignedClassSections || []).forEach(cs => sel.appendChild(new Option(cs, cs)));
+}
+
+function populateEpisodicEventCategoriesHours() {
+  const catSel = document.getElementById("eventPopupCategory");
+  const hrSel = document.getElementById("eventPopupHours");
+  const customContainer = document.getElementById("eventCustomHoursContainer");
+  const customInput = document.getElementById("eventCustomHoursInput");
+  const hoursHelp = document.getElementById("eventHoursHelp");
+  const customCheckbox = document.getElementById("eventCustomHours");
+
+  customCheckbox.checked = false;
+  customInput.style.display = "none";
+  customInput.value = "";
+  hrSel.style.display = "block";
+  hoursHelp.textContent = "";
+
+  catSel.innerHTML = '<option value="" disabled selected>Loading...</option>';
+  hrSel.innerHTML = '<option value="" disabled selected>Loading...</option>';
+
+  google.script.run.withSuccessHandler(cats => {
+    catSel.innerHTML = '<option value="" disabled selected>Select Category</option>';
+    cats.forEach(c => catSel.appendChild(new Option(c, c)));
+  }).getEpisodicCategories();
+
+  google.script.run.withSuccessHandler(config => {
+    hrSel.innerHTML = '<option value="" disabled selected>Select Hours</option>';
+    (config.presetHours || []).forEach(h => hrSel.appendChild(new Option(h, h)));
+    if (config.allowCustom) {
+      customContainer.style.display = "block";
+      hoursHelp.textContent = `Custom hours allowed (max ${config.maxCustom})`;
+      customCheckbox.onchange = () => {
+        if (customCheckbox.checked) {
+          hrSel.style.display = "none";
+          customInput.style.display = "block";
+          customInput.max = config.maxCustom;
         } else {
-          showPopup("Error", `No active term found for ${classSection} on ${selectedDate}. Cannot mark attendance.`);
-          this.value = today;
-          loadEpisodicStudentList();
+          hrSel.style.display = "block";
+          customInput.style.display = "none";
+        }
+      };
+    } else {
+      customContainer.style.display = "none";
+    }
+  }).getEpisodicHoursConfig();
+}
+
+document.getElementById("episodicEventForm")?.addEventListener("submit", function(e) {
+  e.preventDefault();
+
+  // Class sections — locked/marked ones ko hamesha include karo
+  const clsSel = document.getElementById("eventPopupClassSections");
+  const selected = new Set(Array.from(clsSel.selectedOptions).map(o => o.value));
+  (episodicEditMarked || []).forEach(cs => selected.add(cs));
+  const classSections = Array.from(selected);
+
+  if (classSections.length === 0) {
+    return showPopup("Error", "Please select at least one class section.");
+  }
+
+  // ---- EDIT MODE: only class sections change ----
+  if (editingEventId) {
+    showLoading(true, "Updating event...");
+    google.script.run
+      .withSuccessHandler(res => {
+        showLoading(false);
+        if (res && res.success) {
+          closeEpisodicEventPopup();
+          showPopup("Success", "Episodic event updated!");
+          loadEpisodicEvents();
+        } else {
+          showPopup("Error", (res && res.message) || "Failed to update event");
         }
       })
-      .withFailureHandler(err => {
-        showLoading(false);
-        showPopup("Error", err.message);
-        this.value = today;
-        loadEpisodicStudentList();
-      })
-      .getTermForClassSection(classSection, selectedDate);
-  } else {
-    showPopup("Error", "Cannot mark attendance for future dates.");
-    this.value = today;
-    loadEpisodicStudentList();
+      .withFailureHandler(err => { showLoading(false); showPopup("Error", err.message); })
+      .updateEpisodicEvent(editingEventId, classSections);
+    return;
   }
+
+  // ---- CREATE MODE ----
+  const eventName = document.getElementById("eventPopupName").value.trim();
+  const date = document.getElementById("eventPopupDate").value;
+  const category = document.getElementById("eventPopupCategory").value;
+
+  let hours;
+  const customCheckbox = document.getElementById("eventCustomHours");
+  if (customCheckbox && customCheckbox.checked) {
+    hours = document.getElementById("eventCustomHoursInput").value;
+    if (!hours || Number(hours) <= 0) return showPopup("Error", "Please enter valid custom hours.");
+  } else {
+    hours = document.getElementById("eventPopupHours").value;
+    if (!hours) return showPopup("Error", "Please select hours.");
+  }
+
+  if (!eventName || !date || !category) {
+    return showPopup("Error", "Please fill all fields.");
+  }
+
+  showLoading(true, "Saving event...");
+  google.script.run
+    .withSuccessHandler(res => {
+      showLoading(false);
+      if (res && res.success) {
+        closeEpisodicEventPopup();
+        showPopup("Success", "Episodic event created!");
+        loadEpisodicEvents();
+      } else {
+        showPopup("Error", (res && res.message) || "Failed to save event");
+      }
+    })
+    .withFailureHandler(err => { showLoading(false); showPopup("Error", err.message); })
+    .createEpisodicEvent({
+      eventName: eventName, date: date, category: category, hours: hours,
+      classSections: classSections, username: currentUser.username, recId: currentUser.recId
+    });
 });
-
-
 
 // ------------------------------  INIT & HELPERS  ------------------------------
 function functionInit() { 
@@ -3247,7 +3533,7 @@ function closePopup() {
 }
 
 function closeAllPopups() { 
-  ["popupMessage", "logoutPopup", "passwordPopup", "submissionPopup", "singleHoursSetupPopup", "batchHoursUpdatePopup"].forEach(id => { 
+  ["popupMessage", "logoutPopup", "passwordPopup", "submissionPopup", "singleHoursSetupPopup", "batchHoursUpdatePopup", "episodicEventPopup"].forEach(id => { 
     let el = document.getElementById(id); 
     if (el) { 
       el.classList.remove("active"); 
@@ -3475,7 +3761,8 @@ function loginSuccess(user) {
             setupHoursBtn: perms.canSetupHours,
             batchHoursUpdateBtn: perms.canUpdateBatchHours,
             downloadReportsBtn: perms.canDownloadReports || perms.canSeeSummary,
-            episodicAttendanceBtn: perms.canMarkEpisodic
+            episodicAttendanceBtn: perms.canMarkEpisodic,
+            episodicEventBtn: perms.canMarkEpisodic
           };
           
           // Apply permissions to buttons
@@ -4353,7 +4640,8 @@ function stayHere() {
   isSubmitting = false; 
   const page = getCurrentVisiblePage();
   if (page === "attendancePage") {
-    fetchStudentList().then(students => {
+    const date = document.getElementById("dateForToday").textContent || getTodayDate();
+    fetchStudentList(date).then(students => {
       studentData = students;
       renderStudentList(students, "studentList", "attendanceSelect");
       updateDashboard();
@@ -4675,13 +4963,22 @@ function verifyAndShowPreviousDates(mode) {
   google.script.run
     .withSuccessHandler(isAllowed => { 
       if (isAllowed) { 
-        checkAndPromptHours(date, currentUser.classSection, () => {
+                checkAndPromptHours(date, currentUser.classSection, (hoursData) => {
           fetchStudentList(date).then(students => { 
             studentData = students; 
             if (mode === 'manual') {
-              renderStudentList(students, "previousStudentList", "previousAttendanceSelect"); 
-              document.getElementById("previousAttendanceDate").textContent = date;
-              handleNavigation("previousAttendanceContainer");
+              document.getElementById("attendanceClassSection").textContent = currentUser.classSection;
+              document.getElementById("dateForToday").textContent = date;
+              if (hoursData && hoursData.exists) {
+                document.getElementById("attendanceHoursValue").textContent = hoursData.hours || "--";
+                document.getElementById("attendanceCategoryValue").textContent = hoursData.category || "--";
+              } else {
+                document.getElementById("attendanceHoursValue").textContent = "Not set";
+                document.getElementById("attendanceCategoryValue").textContent = "Not set";
+              }
+              renderStudentList(students, "studentList", "attendanceSelect"); 
+              updateDashboard();
+              handleNavigation("attendancePage");
             } else {
               renderStudentList(students, "prevBarcodeStudentList", "prevBarcodeAttendanceSelect");
               document.getElementById("previousBarcodeDate").textContent = date;
@@ -6002,105 +6299,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // DEFINE EVENT LISTENERS SEPARATELY (OUTSIDE DOMContentLoaded)
 function setupEpisodicEventListeners() {
-  const episodicEventName = document.getElementById("episodicEventName");
-  const episodicDate = document.getElementById("episodicDate");
+  const dateSel = document.getElementById("episodicDate");
+  const eventSel = document.getElementById("episodicEventName");
 
-  if (episodicEventName) {
-  const newEventName = episodicEventName.cloneNode(true);
-  episodicEventName.parentNode.replaceChild(newEventName, episodicEventName);
-  
-  // Only reload when user clicks a "Load" button, not on every change
-newEventName.addEventListener("change", function() {
-  // Just save the value, don't reload
-  currentEventName = this.value.trim();
-  // Optional: Show a hint that they need to click "Load Existing" or "Save"
-  showFeedback("Event name saved. Click 'Load Existing' to fetch data.", "alert-info", "episodicAttendanceFeedback");
-});
-  
-  // ALSO add a blur event to save the event name when user leaves the field
-  newEventName.addEventListener("blur", function() {
-    currentEventName = this.value.trim();
-  });
-}
+  if (dateSel) {
+    dateSel.addEventListener("change", function() {
+      loadEpisodicEventsForDate();   // reload events for the newly selected date
+    });
+  }
 
-  if (episodicDate) {
-  episodicDate.addEventListener("change", function() {
-    const selectedDate = this.value;
-    const today = getTodayDate();
-    const classSection = currentUser ? currentUser.classSection : null;
-    
-    if (!classSection) {
-      showPopup("Error", "Please select a class from Dashboard first.");
-      this.value = today;
-      if (typeof loadEpisodicStudentList === 'function') {
-        loadEpisodicStudentList();
-      }
-      return;
-    }
-    
-    if (selectedDate === today) {
-      // Check if hours are set for today
-      google.script.run
-        .withSuccessHandler(hoursCheck => {
-          if (!hoursCheck.exists && userPermissions.canSetupHours) {
-            showPopup("Info", "Hours not set for today. Please set them before marking attendance.");
-          }
-          loadEpisodicStudentList();
-        })
-        .withFailureHandler(() => {
-          loadEpisodicStudentList();
-        })
-.checkDailyHours(selectedDate, classSection);
-
-    } else if (selectedDate < today) {
-      showLoading(true, "Checking term and hours validity...");
-      
-      // First check term
-      google.script.run
-        .withSuccessHandler(term => {
-          if (!term) {
-            showLoading(false);
-            showPopup("Error", `No active term found for ${classSection} on ${selectedDate}. Cannot mark attendance.`);
-            this.value = today;
-            loadEpisodicStudentList();
-            return;
-          }
-          
-          // Then check hours
-          google.script.run
-            .withSuccessHandler(hoursCheck => {
-              showLoading(false);
-              if (!hoursCheck.exists) {
-                showPopup("Warning", `Hours not configured for ${selectedDate}. Please set up hours first.`);
-              }
-              if (typeof showPasswordPopupForEpisodic === 'function') {
-                showPasswordPopupForEpisodic(selectedDate);
-              } else {
-                loadEpisodicStudentList();
-              }
-            })
-            .withFailureHandler(err => {
-              showLoading(false);
-              showPopup("Error", err.message);
-              this.value = today;
-              loadEpisodicStudentList();
-            })
-.checkDailyHours(selectedDate, classSection);
-        })
-        .withFailureHandler(err => {
-          showLoading(false);
-          showPopup("Error", err.message);
-          this.value = today;
-          loadEpisodicStudentList();
-        })
-        .getTermForClassSection(classSection, selectedDate);
-    } else {
-      showPopup("Error", "Cannot mark attendance for future dates.");
-      this.value = today;
-      loadEpisodicStudentList();
-    }
-  });
-}
+  if (eventSel) {
+    eventSel.addEventListener("change", onEpisodicEventChange);
+  }
 }  
 </script>
 </body>
