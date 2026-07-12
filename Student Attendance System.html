@@ -6079,7 +6079,6 @@ newEventName.addEventListener("change", function() {
                 loadEpisodicStudentList();
               }
             })
-            // Then check hours
             .withFailureHandler(err => {
               showLoading(false);
               showPopup("Error", err.message);

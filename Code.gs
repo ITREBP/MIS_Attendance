@@ -37,9 +37,6 @@ function initializeUserCache() {
   CacheService.getScriptCache().put('userDataCache', JSON.stringify(userDataCache), 300);
 }
 
-//Shan
-//Ali
-
 // Us date pe jin class-sections ki NORMAL attendance mark ho chuki hai un ki list
 function getMarkedClassSections(date) {
   try {
@@ -144,9 +141,6 @@ function updateUserStatus(username, newStatus) {
     }
     
     return false; // User not found
-    // User not found
-// User not found
-
     
   } catch (e) {
     console.error('Error updating user status:', e);
