@@ -142,6 +142,8 @@ function updateUserStatus(username, newStatus) {
     
     return false; // User not found
     // User not found
+// User not found
+
     
   } catch (e) {
     console.error('Error updating user status:', e);
