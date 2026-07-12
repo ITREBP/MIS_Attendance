@@ -4,8 +4,6 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
 }
 
-//ali
-
 function initializeUserCache() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Users');
   if (!sheet) throw new Error('Users sheet not found');
@@ -4077,7 +4075,6 @@ initScanner();
   `;
 }
 
-//ali
 
 function getRecName(recId) {
   try {
