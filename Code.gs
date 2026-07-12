@@ -10,7 +10,6 @@ function initializeUserCache() {
   
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return;
-  //Shan
   
   // Read all columns
   const lastCol = sheet.getLastColumn();
