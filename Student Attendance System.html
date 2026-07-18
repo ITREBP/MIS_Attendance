@@ -2573,6 +2573,7 @@
 <script>
 // ------------------------------  GLOBAL VARIABLES  ------------------------------
 let currentUser = null, studentData = [], assignedClassSections = [], userPermissions = { canMarkManual: false, canMarkBarcode: false, canSeeSummary: false, canSetupHours: false, canUpdateBatchHours: false };
+let currentClassHours = 0;
 let scannedStudents = new Set();
 let isSubmitting = false;
 let prevHtml5QrcodeScanner = null;
@@ -3510,17 +3511,8 @@ document.getElementById("episodicEventForm")?.addEventListener("submit", functio
 });
 
 // ------------------------------  INIT & HELPERS  ------------------------------
-function functionInit() { 
-  initTheme(); 
-  document.getElementById("loginForm").addEventListener("submit", handleLogin); 
-  document.getElementById("togglePassword").addEventListener("click", function() { 
-  let pwd = document.getElementById("password"); 
-  const type = pwd.getAttribute("type") === "password" ? "text" : "password";
-  pwd.setAttribute("type", type);
-  this.querySelector("i").classList.toggle("fa-eye");
-  this.querySelector("i").classList.toggle("fa-eye-slash");
-});
-// Restore saved credentials if "Keep me signed in" tha
+
+function restoreSavedCredentials() {
   const rememberChk = document.getElementById("rememberMe");
   const savedUser = localStorage.getItem("savedUsername");
   const savedPass = localStorage.getItem("savedPassword");
@@ -3532,6 +3524,19 @@ function functionInit() {
   } else if (rememberChk) {
     rememberChk.checked = false;
   }
+}
+
+function functionInit() { 
+  initTheme(); 
+  document.getElementById("loginForm").addEventListener("submit", handleLogin); 
+  document.getElementById("togglePassword").addEventListener("click", function() { 
+  let pwd = document.getElementById("password"); 
+  const type = pwd.getAttribute("type") === "password" ? "text" : "password";
+  pwd.setAttribute("type", type);
+  this.querySelector("i").classList.toggle("fa-eye");
+  this.querySelector("i").classList.toggle("fa-eye-slash");
+});
+  restoreSavedCredentials();
   closeAllPopups(); 
   document.getElementById("dashboardClassSectionSelect")?.addEventListener("change", handleDashboardClassSectionSwitch); 
   document.getElementById("passwordForm")?.addEventListener("submit", verifyPreviousPassword); 
@@ -3894,6 +3899,7 @@ function checkAndPromptHours(date, classSection, callback) {
     .withSuccessHandler(check => { 
       if (check.exists) { 
         showLoading(true, "Hours configured."); 
+        currentClassHours = Number(check.hours) || 0;
         // ✅ Pass the hours data to the callback
         callback(check); 
       } else { 
@@ -3903,12 +3909,13 @@ function checkAndPromptHours(date, classSection, callback) {
           // ✅ After saving, fetch and pass the data
           google.script.run
             .withSuccessHandler(savedCheck => {
+              currentClassHours = savedCheck ? (Number(savedCheck.hours) || 0) : 0;
               callback(savedCheck);
             })
             .withFailureHandler(() => {
               callback(null);
             })
-            .checkDailyHours(date, classSection);
+            .checkDailyHours(date, classSection, 'normal');
         }); 
       } 
     })
@@ -3917,7 +3924,7 @@ function checkAndPromptHours(date, classSection, callback) {
       showPopup("Error", err.message); 
       callback(null);
     })
-    .checkDailyHours(date, classSection); 
+     .checkDailyHours(date, classSection, 'normal'); 
 }
 
 function showSingleHoursSetup(date, classSection, callback) { 
@@ -4287,13 +4294,29 @@ function fetchStudentList(date = null) {
 function renderStudentList(students, listId, prefix) { 
   let container = document.getElementById(listId); 
   container.innerHTML = ""; 
+  const showHours = userPermissions.canEditStudentHours && Number(currentClassHours) > 0;
   students.forEach(s => { 
     let li = document.createElement("li"); 
     li.className = "member-item"; 
-    li.innerHTML = `<div class="member-info"><div class="member-name">${escapeHtml(s.Student_Name)}</div><div class="member-dept">${s.Student_Class}-${s.Student_Section}</div><div class="member-ids">ID: ${s.Std_ID} | Barcode: ${s.Barcode_ID}</div></div><div class="attendance-buttons" id="${prefix}_${s.Std_ID}"><button class="attendance-btn present-btn ${s.attendanceStatus === 'Present' ? 'active present' : ''}" data-status="Present">Present</button><button class="attendance-btn absent-btn ${s.attendanceStatus === 'Absent' ? 'active absent' : ''}" data-status="Absent">Absent</button><button class="attendance-btn leave-btn ${s.attendanceStatus === 'Leave' ? 'active leave' : ''}" data-status="Leave">Leave</button></div>`; 
+    let hoursHtml = "";
+      if (showHours) {
+      const ch = Number(currentClassHours);
+      let initVal = ch;
+      if (s.HoursPresent !== null && s.HoursPresent !== undefined && s.HoursPresent !== '' && Number(s.HoursPresent) > 0) {
+        initVal = Math.min(ch, Math.max(0.25, Number(s.HoursPresent)));
+      }
+            hoursHtml = `<div class="student-hours-control" data-classhours="${ch}" style="flex:0 0 100%; width:100%; display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px; border-top:1px dashed var(--gray-200);">
+        <span style="font-size:12px; color:var(--gray-700); margin-right:auto;"><i class="fas fa-clock"></i> Present hours</span>
+        <button type="button" class="btn btn-sm btn-secondary hours-minus" style="padding:4px 12px; line-height:1; min-width:38px;">&minus;</button>
+        <input type="number" class="student-hours-input" value="${initVal}" min="0.25" max="${ch}" step="0.25" readonly disabled style="width:64px; text-align:center; padding:5px; border:1px solid var(--gray-200); border-radius:8px; background:var(--card-bg); color:var(--gray-900); font-weight:600;">
+        <button type="button" class="btn btn-sm btn-secondary hours-plus" style="padding:4px 12px; line-height:1; min-width:38px;">+</button>
+      </div>`;
+    }
+    li.innerHTML = `<div class="member-info"><div class="member-name">${escapeHtml(s.Student_Name)}</div><div class="member-dept">${s.Student_Class}-${s.Student_Section}</div><div class="member-ids">ID: ${s.Std_ID} | Barcode: ${s.Barcode_ID}</div></div><div class="attendance-buttons" id="${prefix}_${s.Std_ID}"><button class="attendance-btn present-btn ${s.attendanceStatus === 'Present' ? 'active present' : ''}" data-status="Present">Present</button><button class="attendance-btn absent-btn ${s.attendanceStatus === 'Absent' ? 'active absent' : ''}" data-status="Absent">Absent</button><button class="attendance-btn leave-btn ${s.attendanceStatus === 'Leave' ? 'active leave' : ''}" data-status="Leave">Leave</button></div>${hoursHtml}`; 
     container.appendChild(li); 
   }); 
   bindAttendanceButtons(); 
+  bindStudentHoursControls();
 }
 
 function bindAttendanceButtons() { 
@@ -4302,11 +4325,47 @@ function bindAttendanceButtons() {
       let parent = this.parentElement; 
       parent.querySelectorAll(".attendance-btn").forEach(b => b.classList.remove("active", "present", "absent", "leave")); 
       this.classList.add("active", this.getAttribute("data-status").toLowerCase()); 
+      // Hours control enabled only when Present
+      const item = this.closest(".member-item");
+      const ctrl = item ? item.querySelector(".student-hours-control") : null;
+      if (ctrl) setStudentHoursEnabled(ctrl, this.getAttribute("data-status") === "Present");
       updateDashboard(); 
       updateBarcodeDashboard();
       updatePrevBarcodeDashboard();
     }; 
   }); 
+}
+
+// Wire +/- buttons and set initial enabled state for all student hours controls
+function bindStudentHoursControls() {
+  document.querySelectorAll(".student-hours-control").forEach(ctrl => {
+    const input = ctrl.querySelector(".student-hours-input");
+    const maxH = Number(ctrl.getAttribute("data-classhours")) || 0;
+    ctrl.querySelector(".hours-minus").onclick = function() {
+      let v = Number(input.value) || 0;
+      input.value = Math.max(0.25, Math.round((v - 0.25) * 100) / 100);
+    };
+    ctrl.querySelector(".hours-plus").onclick = function() {
+      let v = Number(input.value) || 0;
+      input.value = Math.min(maxH, Math.round((v + 0.25) * 100) / 100);
+    };
+  });
+  syncAllStudentHoursControls();
+}
+
+// Set each control's enabled state based on whether its student is marked Present
+function syncAllStudentHoursControls() {
+  document.querySelectorAll(".member-item").forEach(item => {
+    const ctrl = item.querySelector(".student-hours-control");
+    if (!ctrl) return;
+    const presentActive = !!item.querySelector(".attendance-btn.present.active");
+    setStudentHoursEnabled(ctrl, presentActive);
+  });
+}
+
+function setStudentHoursEnabled(ctrl, enabled) {
+  ctrl.querySelectorAll("input,button").forEach(el => el.disabled = !enabled);
+  ctrl.style.opacity = enabled ? "1" : "0.5";
 }
 
 function updateDashboard() { 
@@ -4429,7 +4488,14 @@ function validateAndMarkAttendance() {
         missingStudents.push(studentId);
         return;
       }
-      if (student.attendanceStatus !== 'Not marked' && status === student.attendanceStatus) {
+            let hoursPresent = 0;
+      if (status === 'Present') {
+        const hoursInput = item.querySelector('.student-hours-input');
+        hoursPresent = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
+      }
+      const prevHours = (student.HoursPresent === null || student.HoursPresent === undefined || student.HoursPresent === '') ? null : Number(student.HoursPresent);
+      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursPresent) !== prevHours);
+      if (student.attendanceStatus !== 'Not marked' && status === student.attendanceStatus && !hoursChanged) {
         alreadyMarkedStudents.push(student.Student_Name);
       } else if (status !== 'Not marked') {
         attendanceData.push({
@@ -4440,7 +4506,8 @@ function validateAndMarkAttendance() {
           Student_Class: student.Student_Class,
           Student_Section: student.Student_Section,
           Status: status,
-          Date: date
+          Date: date,
+          HoursPresent: hoursPresent
         });
       }
     }
@@ -4499,7 +4566,14 @@ function validateAndMarkBarcodeAttendance() {
         missingStudents.push(studentId);
         return;
       }
-      if (student.attendanceStatus !== 'Not marked' && status === student.attendanceStatus) {
+            let hoursPresent = 0;
+      if (status === 'Present') {
+        const hoursInput = item.querySelector('.student-hours-input');
+        hoursPresent = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
+      }
+      const prevHours = (student.HoursPresent === null || student.HoursPresent === undefined || student.HoursPresent === '') ? null : Number(student.HoursPresent);
+      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursPresent) !== prevHours);
+      if (student.attendanceStatus !== 'Not marked' && status === student.attendanceStatus && !hoursChanged) {
         alreadyMarkedStudents.push(student.Student_Name);
       } else if (status !== 'Not marked') {
         attendanceData.push({
@@ -4510,7 +4584,8 @@ function validateAndMarkBarcodeAttendance() {
           Student_Class: student.Student_Class,
           Student_Section: student.Student_Section,
           Status: status,
-          Date: date
+          Date: date,
+          HoursPresent: hoursPresent
         });
       }
     }
@@ -4584,7 +4659,14 @@ function validateAndMarkPrevBarcodeAttendance() {
         missingStudents.push(studentId);
         return;
       }
-      if (status !== 'Not marked' && student.attendanceStatus !== status) {
+            let hoursPresent = 0;
+      if (status === 'Present') {
+        const hoursInput = item.querySelector('.student-hours-input');
+        hoursPresent = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
+      }
+      const prevHours = (student.HoursPresent === null || student.HoursPresent === undefined || student.HoursPresent === '') ? null : Number(student.HoursPresent);
+      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursPresent) !== prevHours);
+      if (status !== 'Not marked' && (student.attendanceStatus !== status || hoursChanged)) {
         attendanceData.push({
           Attendance_ID: generateUUID(),
           Std_ID: studentId,
@@ -4593,7 +4675,8 @@ function validateAndMarkPrevBarcodeAttendance() {
           Student_Class: student.Student_Class,
           Student_Section: student.Student_Section,
           Status: status,
-          Date: date
+          Date: date,
+          HoursPresent: hoursPresent
         });
       }
     }
@@ -4653,7 +4736,14 @@ function validateAndMarkPreviousAttendance() {
         missingStudents.push(studentId);
         return;
       }
-      if (status !== 'Not marked' && student.attendanceStatus !== status) {
+            let hoursPresent = 0;
+      if (status === 'Present') {
+        const hoursInput = item.querySelector('.student-hours-input');
+        hoursPresent = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
+      }
+      const prevHours = (student.HoursPresent === null || student.HoursPresent === undefined || student.HoursPresent === '') ? null : Number(student.HoursPresent);
+      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursPresent) !== prevHours);
+      if (status !== 'Not marked' && (student.attendanceStatus !== status || hoursChanged)) {
         attendanceData.push({
           Attendance_ID: generateUUID(),
           Std_ID: studentId,
@@ -4662,7 +4752,8 @@ function validateAndMarkPreviousAttendance() {
           Student_Class: student.Student_Class,
           Student_Section: student.Student_Section,
           Status: status,
-          Date: date
+          Date: date,
+          HoursPresent: hoursPresent
         });
       }
     }
@@ -4749,6 +4840,7 @@ function handleLogout() {
   scannedStudents.clear(); 
   isSubmitting = false;
   document.getElementById("loginForm").reset(); 
+  restoreSavedCredentials();
   handleNavigation("loginPage"); 
   closeAllPopups(); 
   

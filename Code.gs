@@ -733,7 +733,8 @@ function getStudentList(classSection, date) {
           Student_Class: studentData[i][classCol],
           Student_Section: studentData[i][sectionCol],
           Date_of_Joining: dateOfJoining ? dateOfJoining.toLocaleDateString('en-CA') : null,
-          attendanceStatus: 'Not marked'
+          attendanceStatus: 'Not marked',
+          HoursPresent: null
         });
       }
     }
@@ -765,6 +766,11 @@ function getStudentList(classSection, date) {
           // Skip if this is an episodic record
           if (attendanceType !== 'Episodic') {
             studentsMap.get(stdId).attendanceStatus = attendanceData[j][attendanceHeaderMap.get('Status')] || 'Not marked';
+            const hpIdx = attendanceHeaderMap.get('HoursPresent');
+            if (hpIdx !== undefined) {
+              const hpVal = attendanceData[j][hpIdx];
+              studentsMap.get(stdId).HoursPresent = (hpVal === '' || hpVal === null || hpVal === undefined) ? null : hpVal;
+            }
           }
         }
       }
@@ -1049,6 +1055,7 @@ console.log('Hours check result:', hoursCheck);  // Add this for debugging
        const hoursCol = headerMap.get('Hours');
         const categoryCol = headerMap.get('Category');
         const recIdCol = headerMap.get('REC_ID');
+        const hoursPresentCol = headerMap.get('HoursPresent');
 
 // -------------------------------------------------
 // Build map of existing rows for the target date + class
@@ -1102,9 +1109,16 @@ Logger.log(`Found ${existingRecordsByStudentDate.size} existing NORMAL records f
             const studentKey = String(record.Std_ID);
             const existing = existingRecordsByStudentDate.get(studentKey);
 
+                        // Authoritative HoursPresent: use sent value, else class hours for Present, else 0
+            const desiredHp = (record.HoursPresent !== undefined && record.HoursPresent !== '' && record.HoursPresent !== null)
+              ? record.HoursPresent
+              : (record.Status === 'Present' ? hoursCheck.hours : 0);
+
             if (existing) {
               // ---- UPDATE existing row ----
-              if (existing.currentStatus !== record.Status) {
+              const existingHp = (hoursPresentCol !== undefined) ? existing.data[hoursPresentCol] : '';
+              const hpChanged = (hoursPresentCol !== undefined) && (String(existingHp) !== String(desiredHp));
+              if (existing.currentStatus !== record.Status || hpChanged) {
                 const updatedRow = [...existing.data]; // shallow copy
                 updatedRow[headerMap.get('Status')]      = record.Status;
                 updatedRow[headerMap.get('Timestamp')]   = new Date().toLocaleString();
@@ -1122,6 +1136,7 @@ Logger.log(`Found ${existingRecordsByStudentDate.size} existing NORMAL records f
                 updatedRow[hoursCol] = hoursCheck.hours;
                 updatedRow[categoryCol] = hoursCheck.category;
                 if (recIdCol !== undefined) updatedRow[recIdCol] = recId;
+                if (hoursPresentCol !== undefined) updatedRow[hoursPresentCol] = desiredHp;
                 
                 // ========================================================
                 // NEW: Add Term information if columns exist
@@ -1168,6 +1183,7 @@ if (attendanceTypeCol !== undefined) {
               newRow[hoursCol] = hoursCheck.hours;
               newRow[categoryCol] = hoursCheck.category;
               if (recIdCol !== undefined) newRow[recIdCol] = recId;
+              if (hoursPresentCol !== undefined) newRow[hoursPresentCol] = desiredHp;
 
               // ========================================================
               // NEW: Add Term information if columns exist
@@ -2276,7 +2292,8 @@ function getUserPermissions(username) {
           canDownloadReports: data[i][6] === 'TRUE' || data[i][6] === true,
           canDownloadAllReports: data[i][7] === 'TRUE' || data[i][7] === true,
           canMarkEpisodic: data[i][8] === 'TRUE' || data[i][8] === true,
-          canManageEpisodicEvents: data[i][10] === 'TRUE' || data[i][10] === true
+          canManageEpisodicEvents: data[i][9] === 'TRUE' || data[i][9] === true,
+          canEditStudentHours: data[i][10] === 'TRUE' || data[i][10] === true
         };
       }
     }
@@ -2289,7 +2306,8 @@ function getUserPermissions(username) {
       canDownloadReports: false,
       canDownloadAllReports: false,
       canMarkEpisodic: false,
-      canManageEpisodicEvents: false
+      canManageEpisodicEvents: false,
+      canEditStudentHours: false
     };
   } catch (e) {
     Logger.log('Error in getUserPermissions: ' + e.message);
