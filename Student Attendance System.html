@@ -2529,6 +2529,7 @@
   <div id="episodicEventPopup" class="password-popup" style="display:none; width:460px; max-height:90vh; overflow-y:auto;">
     <h3><i class="fas fa-calendar-plus me-2"></i>Create Episodic Event</h3>
     <form id="episodicEventForm">
+      <div id="eventPopupError" class="alert alert-danger d-none" style="margin-bottom:12px;"></div>
       <div class="mb-3">
         <label class="form-label">Event Name *</label>
         <input type="text" class="form-control" id="eventPopupName" required placeholder="e.g., ACCESS CAMP">
@@ -3143,8 +3144,7 @@ function submitEpisodicAttendance() {
     .withSuccessHandler(result => {
       showLoading(false);
       if (result && result.success) {
-        showPopup("Success", `Episodic attendance saved!\n\nPresent: ${result.presentCount}\nNot Applicable: ${result.notApplicableCount}`);
-        showSubmissionPopup();
+        showPopupThen("Success", `Episodic attendance saved!\n\nPresent: ${result.presentCount}\nNot Applicable: ${result.notApplicableCount}`, showSubmissionPopup);
       } else {
         showPopup("Error", (result && result.message) || "Failed to save attendance");
       }
@@ -3262,6 +3262,7 @@ function confirmDeleteEpisodicEvent(eventId, eventName) {
 function editEpisodicEvent(eventId) {
   const ev = episodicEventsListData.find(e => String(e.eventId) === String(eventId));
   if (!ev) return showPopup("Error", "Event not found. Please reopen the list.");
+  clearEventPopupError();
 
   editingEventId = eventId;
   episodicEditMarked = [];
@@ -3309,6 +3310,7 @@ function editEpisodicEvent(eventId) {
 // =============== EPISODIC EVENTS (CREATE POPUP) ===============
 function openEpisodicEventPopup() {
   if (!currentUser) return showPopup("Error", "Please login again.");
+  clearEventPopupError();
   editingEventId = null;
   episodicEditMarked = [];
   setEpisodicEventPopupMode(false);   // all fields editable
@@ -3335,6 +3337,17 @@ function setEpisodicEventPopupMode(isEdit) {
 function closeEpisodicEventPopup() {
   document.getElementById("episodicEventPopup").style.display = "";
   document.getElementById("modalBackdrop").classList.remove("active");
+}
+
+function showEventPopupError(msg) {
+  const el = document.getElementById("eventPopupError");
+  el.textContent = msg;
+  el.classList.remove("d-none");
+}
+function clearEventPopupError() {
+  const el = document.getElementById("eventPopupError");
+  el.textContent = "";
+  el.classList.add("d-none");
 }
 
 // Allowed previous + today + 2 future, ascending order (no password)
@@ -3422,19 +3435,18 @@ function populateEpisodicEventCategoriesHours() {
 
 document.getElementById("episodicEventForm")?.addEventListener("submit", function(e) {
   e.preventDefault();
+  clearEventPopupError();
 
-  // Class sections — locked/marked ones ko hamesha include karo
   const clsSel = document.getElementById("eventPopupClassSections");
   const selectedNow = Array.from(clsSel.selectedOptions).map(o => o.value);
 
   // ---- EDIT MODE: only class sections change ----
   if (editingEventId) {
-    // keep the locked (attendance-marked) classes even if the browser dropped them
     const selected = new Set(selectedNow);
     (episodicEditMarked || []).forEach(cs => selected.add(cs));
     const classSections = Array.from(selected);
     if (classSections.length === 0) {
-      return showPopup("Error", "Please select at least one class section.");
+      return showEventPopupError("Please select at least one class section.");
     }
     showLoading(true, "Updating event...");
     google.script.run
@@ -3445,19 +3457,18 @@ document.getElementById("episodicEventForm")?.addEventListener("submit", functio
           showPopup("Success", "Episodic event updated!");
           loadEpisodicEvents();
         } else {
-          showPopup("Error", (res && res.message) || "Failed to update event");
+          showEventPopupError((res && res.message) || "Failed to update event");
         }
       })
-      .withFailureHandler(err => { showLoading(false); showPopup("Error", err.message); })
+      .withFailureHandler(err => { showLoading(false); showEventPopupError(err.message); })
       .updateEpisodicEvent(editingEventId, classSections);
     return;
   }
 
-  // ---- CREATE MODE ----
-    // ---- CREATE MODE (only the currently selected classes, exactly like Batch Hours) ----
+  // ---- CREATE MODE (only the currently selected classes, exactly like Batch Hours) ----
   const classSections = selectedNow;
   if (classSections.length === 0) {
-    return showPopup("Error", "Please select at least one class section.");
+    return showEventPopupError("Please select at least one class section.");
   }
   const eventName = document.getElementById("eventPopupName").value.trim();
   const date = document.getElementById("eventPopupDate").value;
@@ -3467,14 +3478,14 @@ document.getElementById("episodicEventForm")?.addEventListener("submit", functio
   const customCheckbox = document.getElementById("eventCustomHours");
   if (customCheckbox && customCheckbox.checked) {
     hours = document.getElementById("eventCustomHoursInput").value;
-    if (!hours || Number(hours) <= 0) return showPopup("Error", "Please enter valid custom hours.");
+    if (!hours || Number(hours) <= 0) return showEventPopupError("Please enter valid custom hours.");
   } else {
     hours = document.getElementById("eventPopupHours").value;
-    if (!hours) return showPopup("Error", "Please select hours.");
+    if (!hours) return showEventPopupError("Please select hours.");
   }
 
   if (!eventName || !date || !category) {
-    return showPopup("Error", "Please fill all fields.");
+    return showEventPopupError("Please fill all fields.");
   }
 
   showLoading(true, "Saving event...");
@@ -3486,10 +3497,10 @@ document.getElementById("episodicEventForm")?.addEventListener("submit", functio
         showPopup("Success", "Episodic event created!");
         loadEpisodicEvents();
       } else {
-        showPopup("Error", (res && res.message) || "Failed to save event");
+        showEventPopupError((res && res.message) || "Failed to save event");
       }
     })
-    .withFailureHandler(err => { showLoading(false); showPopup("Error", err.message); })
+    .withFailureHandler(err => { showLoading(false); showEventPopupError(err.message); })
     .createEpisodicEvent({
       eventName: eventName, date: date, category: category, hours: hours,
       classSections: classSections, username: currentUser.username, recId: currentUser.recId
@@ -3564,6 +3575,16 @@ function showPopup(title, message) {
 function closePopup() { 
   document.getElementById("popupMessage").classList.remove("active"); 
   document.getElementById("modalBackdrop").classList.remove("active"); 
+}
+
+function showPopupThen(title, message, callback) {
+  showPopup(title, message);
+  const okBtn = document.querySelector('#popupMessage button');
+  okBtn.onclick = function() {
+    okBtn.onclick = function() { closePopup(); };   // restore default for future
+    closePopup();
+    if (callback) callback();
+  };
 }
 
 function closeAllPopups() { 
