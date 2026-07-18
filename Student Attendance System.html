@@ -2092,7 +2092,7 @@
         <button class="btn btn-warning d-none" id="downloadReportsBtn" onclick="showReportDownload()"><i class="fas fa-download"></i> Reports</button>
         <button class="btn btn-warning d-none" id="setupHoursBtn" onclick="showHoursStatusDashboard()"><i class="fas fa-clock"></i> Hours Setup</button>
         <button class="btn btn-danger d-none" id="batchHoursUpdateBtn" onclick="showBatchHoursUpdateForm()"><i class="fas fa-edit"></i> Batch Hours</button>
-        <button class="btn btn-warning d-none" id="episodicAttendanceBtn" onclick="showEpisodicAttendanceForm()"><i class="fas fa-hiking"></i> Episodic Hours</button>
+        <button class="btn btn-warning d-none" id="episodicAttendanceBtn" onclick="showEpisodicAttendanceForm()"><i class="fas fa-hiking"></i> Episodic Attendance</button>
         <button class="btn btn-secondary" onclick="showPreviousAttendanceForm()"><i class="fas fa-history"></i> Previous</button>
         <button class="btn btn-warning d-none" id="episodicEventBtn" onclick="showEpisodicEventsList()"><i class="fas fa-calendar-plus"></i> Episodic Event</button>
       </div>
@@ -2678,15 +2678,16 @@ function showEpisodicAttendanceForm() {
   document.getElementById("episodicTotalCount2").textContent = 0;
   updateEpisodicCounters();
 
-  // Show the page
-  handleNavigation("episodicAttendancePage");
-
-  // Populate date dropdown (today + allowed previous, ascending), then load events
-  populateEpisodicDates();
+  // Load dates + events FIRST, then open the page
+  showLoading(true, "Loading...");
+  populateEpisodicDates(() => {
+    showLoading(false);
+    handleNavigation("episodicAttendancePage");
+  });
 }
 
 // Date dropdown: today + allowed previous dates, ascending (no future, no password)
-function populateEpisodicDates() {
+function populateEpisodicDates(onReady) {
   const sel = document.getElementById("episodicDate");
   const today = getTodayDate();
   google.script.run
@@ -2696,23 +2697,23 @@ function populateEpisodicDates() {
       sel.innerHTML = "";
       all.forEach(d => sel.appendChild(new Option(formatDateDMY(d) + (d === today ? " (Today)" : ""), d)));
       sel.value = today;                 // default to today
-      loadEpisodicEventsForDate();       // load events for the default date
+      loadEpisodicEventsForDate(onReady);       // load events for the default date
     })
     .withFailureHandler(() => {
       sel.innerHTML = "";
       sel.appendChild(new Option(formatDateDMY(today) + " (Today)", today));
       sel.value = today;
-      loadEpisodicEventsForDate();
+      loadEpisodicEventsForDate(onReady);
     })
     .getAllowedPreviousDates(currentUser.username);
 }
 
 // After a date is chosen, fill the Event dropdown from the Episodic_Events sheet
-function loadEpisodicEventsForDate() {
+function loadEpisodicEventsForDate(onReady) {
   const classSection = currentUser ? currentUser.classSection : null;
   const date = document.getElementById("episodicDate").value;
   const eventSelect = document.getElementById("episodicEventName");
-  if (!classSection || !date) return;
+  if (!classSection || !date) { if (typeof onReady === "function") onReady(); return; }
 
   // Reset event + student area
   selectedEpisodicEvent = null;
@@ -2731,16 +2732,17 @@ function loadEpisodicEventsForDate() {
       if (episodicEventsForDate.length === 0) {
         eventSelect.innerHTML = '<option value="" disabled selected>No events for this date</option>';
         showFeedback("No events found for this date. Please create one from 'Episodic Event' first.", "alert-warning", "episodicAttendanceFeedback");
-        return;
+      } else {
+        eventSelect.innerHTML = '<option value="" disabled selected>Select Event</option>';
+        episodicEventsForDate.forEach(ev => {
+          eventSelect.appendChild(new Option(`${ev.eventName} (${ev.hours} hrs, ${ev.category})`, ev.eventId));
+        });
       }
-      eventSelect.innerHTML = '<option value="" disabled selected>Select Event</option>';
-      episodicEventsForDate.forEach(ev => {
-        eventSelect.appendChild(new Option(`${ev.eventName} (${ev.hours} hrs, ${ev.category})`, ev.eventId));
-      });
+      if (typeof onReady === "function") onReady();
     })
     .withFailureHandler(err => {
       eventSelect.innerHTML = '<option value="" disabled selected>Error loading events</option>';
-      showPopup("Error", err.message);
+      if (typeof onReady === "function") onReady(); else showPopup("Error", err.message);
     })
     .getEpisodicEventsForDate(classSection, date);
 }
@@ -3170,7 +3172,7 @@ function submitEpisodicAttendance() {
 
 // =============== EPISODIC EVENTS (LIST) ===============
 function showEpisodicEventsList() {
-  if (!userPermissions.canMarkEpisodic) return showPopup("Error", "No permission");
+  if (!userPermissions.canManageEpisodicEvents) return showPopup("Error", "No permission");
   if (!currentUser) return showPopup("Error", "Please login again.");
   showLoading(true, "Loading events...");
   google.script.run
@@ -3817,7 +3819,7 @@ function loginSuccess(user) {
             batchHoursUpdateBtn: perms.canUpdateBatchHours,
             downloadReportsBtn: perms.canDownloadReports || perms.canSeeSummary,
             episodicAttendanceBtn: perms.canMarkEpisodic,
-            episodicEventBtn: perms.canMarkEpisodic
+            episodicEventBtn: perms.canManageEpisodicEvents
           };
           
           // Apply permissions to buttons

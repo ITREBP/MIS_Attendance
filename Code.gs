@@ -2275,7 +2275,8 @@ function getUserPermissions(username) {
           canUpdateBatchHours: data[i][5] === 'TRUE' || data[i][5] === true,
           canDownloadReports: data[i][6] === 'TRUE' || data[i][6] === true,
           canDownloadAllReports: data[i][7] === 'TRUE' || data[i][7] === true,
-          canMarkEpisodic: data[i][8] === 'TRUE' || data[i][8] === true  // ADD THIS LINE
+          canMarkEpisodic: data[i][8] === 'TRUE' || data[i][8] === true,
+          canManageEpisodicEvents: data[i][10] === 'TRUE' || data[i][10] === true
         };
       }
     }
@@ -2287,7 +2288,8 @@ function getUserPermissions(username) {
       canUpdateBatchHours: false,
       canDownloadReports: false,
       canDownloadAllReports: false,
-      canMarkEpisodic: false  // ADD THIS LINE
+      canMarkEpisodic: false,
+      canManageEpisodicEvents: false
     };
   } catch (e) {
     Logger.log('Error in getUserPermissions: ' + e.message);
