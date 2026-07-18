@@ -2497,11 +2497,12 @@
               <th>Date</th>
               <th>Category</th>
               <th>Hours</th>
+              <th>Classes</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="episodicEventsTableBody">
-            <tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>
+            <tr><td colspan="6" class="text-center text-muted">Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -3171,8 +3172,19 @@ function submitEpisodicAttendance() {
 function showEpisodicEventsList() {
   if (!userPermissions.canMarkEpisodic) return showPopup("Error", "No permission");
   if (!currentUser) return showPopup("Error", "Please login again.");
-  handleNavigation("episodicEventsContainer");
-  loadEpisodicEvents();
+  showLoading(true, "Loading events...");
+  google.script.run
+    .withSuccessHandler(events => {
+      showLoading(false);
+      episodicEventsListData = events || [];
+      renderEpisodicEventsList(episodicEventsListData);
+      handleNavigation("episodicEventsContainer");
+    })
+    .withFailureHandler(err => {
+      showLoading(false);
+      showPopup("Error", err.message);
+    })
+    .getEpisodicEvents(currentUser.username);
 }
 
 function loadEpisodicEvents() {
@@ -3189,7 +3201,7 @@ function loadEpisodicEvents() {
 function renderEpisodicEventsList(events) {
   const tbody = document.getElementById("episodicEventsTableBody");
   if (!events || events.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">No events created yet</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">No events created yet</td></tr>`;
     return;
   }
   tbody.innerHTML = "";
@@ -3200,6 +3212,7 @@ function renderEpisodicEventsList(events) {
       <td>${formatDateDMY(ev.date)}</td>
       <td>${escapeHtml(ev.category)}</td>
       <td>${escapeHtml(String(ev.hours))}</td>
+      <td>${escapeHtml(String(ev.classSections || "").split(",").join(", "))}</td>
       <td style="white-space:nowrap;">
         <button class="btn btn-sm btn-warning" title="Edit" onclick="editEpisodicEvent('${ev.eventId}')"><i class="fas fa-edit"></i></button>
         <button class="btn btn-sm btn-danger" title="Delete" onclick="confirmDeleteEpisodicEvent('${ev.eventId}', '${escapeHtml(ev.eventName)}')"><i class="fas fa-trash"></i></button>
@@ -3216,20 +3229,34 @@ function formatDateDMY(ymd) {
 }
 
 function confirmDeleteEpisodicEvent(eventId, eventName) {
-  if (!confirm(`Delete event "${eventName}"?`)) return;
-  showLoading(true, "Deleting...");
+  const ev = episodicEventsListData.find(e => String(e.eventId) === String(eventId));
+  if (!ev) return showPopup("Error", "Event not found. Please reopen the list.");
+
+  showLoading(true, "Checking attendance...");
   google.script.run
-    .withSuccessHandler(res => {
+    .withSuccessHandler(marked => {
       showLoading(false);
-      if (res && res.success) {
-        showPopup("Success", "Event deleted");
-        loadEpisodicEvents();
-      } else {
-        showPopup("Error", (res && res.message) || "Delete failed");
+      if (marked && marked.length > 0) {
+        showPopup("Cannot Delete", `Attendance is already marked for: ${marked.join(", ")}. This event cannot be deleted.`);
+        return;
       }
+      if (!confirm(`Delete event "${eventName}"?`)) return;
+      showLoading(true, "Deleting...");
+      google.script.run
+        .withSuccessHandler(res => {
+          showLoading(false);
+          if (res && res.success) {
+            showPopup("Success", "Event deleted");
+            loadEpisodicEvents();
+          } else {
+            showPopup("Error", (res && res.message) || "Delete failed");
+          }
+        })
+        .withFailureHandler(err => { showLoading(false); showPopup("Error", err.message); })
+        .deleteEpisodicEvent(eventId);
     })
     .withFailureHandler(err => { showLoading(false); showPopup("Error", err.message); })
-    .deleteEpisodicEvent(eventId);
+    .getMarkedClassSectionsForEvent(ev.eventName, ev.date);
 }
 
 function editEpisodicEvent(eventId) {
@@ -3268,6 +3295,7 @@ function editEpisodicEvent(eventId) {
   google.script.run
     .withSuccessHandler(marked => {
       showLoading(false);
+      if (editingEventId !== eventId) return;   // popup changed/closed — ignore stale response
       episodicEditMarked = marked || [];
       episodicEditMarked.forEach(cs => {
         const opt = Array.from(clsSel.options).find(o => o.value === cs);
@@ -3397,16 +3425,17 @@ document.getElementById("episodicEventForm")?.addEventListener("submit", functio
 
   // Class sections — locked/marked ones ko hamesha include karo
   const clsSel = document.getElementById("eventPopupClassSections");
-  const selected = new Set(Array.from(clsSel.selectedOptions).map(o => o.value));
-  (episodicEditMarked || []).forEach(cs => selected.add(cs));
-  const classSections = Array.from(selected);
-
-  if (classSections.length === 0) {
-    return showPopup("Error", "Please select at least one class section.");
-  }
+  const selectedNow = Array.from(clsSel.selectedOptions).map(o => o.value);
 
   // ---- EDIT MODE: only class sections change ----
   if (editingEventId) {
+    // keep the locked (attendance-marked) classes even if the browser dropped them
+    const selected = new Set(selectedNow);
+    (episodicEditMarked || []).forEach(cs => selected.add(cs));
+    const classSections = Array.from(selected);
+    if (classSections.length === 0) {
+      return showPopup("Error", "Please select at least one class section.");
+    }
     showLoading(true, "Updating event...");
     google.script.run
       .withSuccessHandler(res => {
@@ -3425,6 +3454,11 @@ document.getElementById("episodicEventForm")?.addEventListener("submit", functio
   }
 
   // ---- CREATE MODE ----
+    // ---- CREATE MODE (only the currently selected classes, exactly like Batch Hours) ----
+  const classSections = selectedNow;
+  if (classSections.length === 0) {
+    return showPopup("Error", "Please select at least one class section.");
+  }
   const eventName = document.getElementById("eventPopupName").value.trim();
   const date = document.getElementById("eventPopupDate").value;
   const category = document.getElementById("eventPopupCategory").value;
