@@ -4302,8 +4302,8 @@ function renderStudentList(students, listId, prefix) {
       if (showHours) {
       const ch = Number(currentClassHours);
       let initVal = ch;
-      if (s.HoursPresent !== null && s.HoursPresent !== undefined && s.HoursPresent !== '' && Number(s.HoursPresent) > 0) {
-        initVal = Math.min(ch, Math.max(0.25, Number(s.HoursPresent)));
+      if (s.Hours !== null && s.Hours !== undefined && s.Hours !== '' && Number(s.Hours) > 0) {
+        initVal = Math.min(ch, Math.max(0.25, Number(s.Hours)));
       }
             hoursHtml = `<div class="student-hours-control" data-classhours="${ch}" style="flex:0 0 100%; width:100%; display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px; border-top:1px dashed var(--gray-200);">
         <span style="font-size:12px; color:var(--gray-700); margin-right:auto;"><i class="fas fa-clock"></i> Present hours</span>
@@ -4366,6 +4366,11 @@ function syncAllStudentHoursControls() {
 function setStudentHoursEnabled(ctrl, enabled) {
   ctrl.querySelectorAll("input,button").forEach(el => el.disabled = !enabled);
   ctrl.style.opacity = enabled ? "1" : "0.5";
+  if (!enabled) {
+    const input = ctrl.querySelector(".student-hours-input");
+    const def = ctrl.getAttribute("data-classhours");
+    if (input && def) input.value = def;   // reset to class hours when not Present
+  }
 }
 
 function updateDashboard() { 
@@ -4488,13 +4493,13 @@ function validateAndMarkAttendance() {
         missingStudents.push(studentId);
         return;
       }
-            let hoursPresent = 0;
+      let hoursValue = currentClassHours || 0;
       if (status === 'Present') {
         const hoursInput = item.querySelector('.student-hours-input');
-        hoursPresent = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
+        hoursValue = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
       }
-      const prevHours = (student.HoursPresent === null || student.HoursPresent === undefined || student.HoursPresent === '') ? null : Number(student.HoursPresent);
-      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursPresent) !== prevHours);
+      const prevHours = (student.Hours === null || student.Hours === undefined || student.Hours === '') ? null : Number(student.Hours);
+      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursValue) !== prevHours);
       if (student.attendanceStatus !== 'Not marked' && status === student.attendanceStatus && !hoursChanged) {
         alreadyMarkedStudents.push(student.Student_Name);
       } else if (status !== 'Not marked') {
@@ -4507,7 +4512,7 @@ function validateAndMarkAttendance() {
           Student_Section: student.Student_Section,
           Status: status,
           Date: date,
-          HoursPresent: hoursPresent
+          Hours: hoursValue
         });
       }
     }
@@ -4566,13 +4571,13 @@ function validateAndMarkBarcodeAttendance() {
         missingStudents.push(studentId);
         return;
       }
-            let hoursPresent = 0;
+      let hoursValue = currentClassHours || 0;
       if (status === 'Present') {
         const hoursInput = item.querySelector('.student-hours-input');
-        hoursPresent = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
+        hoursValue = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
       }
-      const prevHours = (student.HoursPresent === null || student.HoursPresent === undefined || student.HoursPresent === '') ? null : Number(student.HoursPresent);
-      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursPresent) !== prevHours);
+      const prevHours = (student.Hours === null || student.Hours === undefined || student.Hours === '') ? null : Number(student.Hours);
+      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursValue) !== prevHours);
       if (student.attendanceStatus !== 'Not marked' && status === student.attendanceStatus && !hoursChanged) {
         alreadyMarkedStudents.push(student.Student_Name);
       } else if (status !== 'Not marked') {
@@ -4585,7 +4590,7 @@ function validateAndMarkBarcodeAttendance() {
           Student_Section: student.Student_Section,
           Status: status,
           Date: date,
-          HoursPresent: hoursPresent
+          Hours: hoursValue
         });
       }
     }
@@ -4659,13 +4664,13 @@ function validateAndMarkPrevBarcodeAttendance() {
         missingStudents.push(studentId);
         return;
       }
-            let hoursPresent = 0;
+            let hoursValue = currentClassHours || 0;
       if (status === 'Present') {
         const hoursInput = item.querySelector('.student-hours-input');
-        hoursPresent = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
+        hoursValue = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
       }
-      const prevHours = (student.HoursPresent === null || student.HoursPresent === undefined || student.HoursPresent === '') ? null : Number(student.HoursPresent);
-      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursPresent) !== prevHours);
+      const prevHours = (student.Hours === null || student.Hours === undefined || student.Hours === '') ? null : Number(student.Hours);
+      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursValue) !== prevHours);
       if (status !== 'Not marked' && (student.attendanceStatus !== status || hoursChanged)) {
         attendanceData.push({
           Attendance_ID: generateUUID(),
@@ -4676,7 +4681,7 @@ function validateAndMarkPrevBarcodeAttendance() {
           Student_Section: student.Student_Section,
           Status: status,
           Date: date,
-          HoursPresent: hoursPresent
+          Hours: hoursValue
         });
       }
     }
@@ -4736,13 +4741,13 @@ function validateAndMarkPreviousAttendance() {
         missingStudents.push(studentId);
         return;
       }
-            let hoursPresent = 0;
+            let hoursValue = currentClassHours || 0;
       if (status === 'Present') {
         const hoursInput = item.querySelector('.student-hours-input');
-        hoursPresent = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
+        hoursValue = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
       }
-      const prevHours = (student.HoursPresent === null || student.HoursPresent === undefined || student.HoursPresent === '') ? null : Number(student.HoursPresent);
-      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursPresent) !== prevHours);
+      const prevHours = (student.Hours === null || student.Hours === undefined || student.Hours === '') ? null : Number(student.Hours);
+      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursValue) !== prevHours);
       if (status !== 'Not marked' && (student.attendanceStatus !== status || hoursChanged)) {
         attendanceData.push({
           Attendance_ID: generateUUID(),
@@ -4753,7 +4758,7 @@ function validateAndMarkPreviousAttendance() {
           Student_Section: student.Student_Section,
           Status: status,
           Date: date,
-          HoursPresent: hoursPresent
+          Hours: hoursValue
         });
       }
     }
