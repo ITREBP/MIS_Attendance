@@ -3928,13 +3928,15 @@ function checkAndPromptHours(date, classSection, callback) {
 }
 
 function showSingleHoursSetup(date, classSection, callback) { 
-  showLoading(false); 
+  showLoading(true, "Loading hours setup..."); 
   document.getElementById("setupDate").textContent = date; 
   document.getElementById("setupClassSection").textContent = classSection; 
   let popup = document.getElementById("singleHoursSetupPopup"), backdrop = document.getElementById("modalBackdrop"); 
-  populateCategoriesAndHours("setupCategory", "setupHours"); 
-  popup.style.display = "block"; 
-  backdrop.classList.add("active"); 
+  populateCategoriesAndHours("setupCategory", "setupHours", () => {
+    showLoading(false);
+    popup.style.display = "block"; 
+    backdrop.classList.add("active"); 
+  }); 
   let form = document.getElementById("singleHoursForm"); 
   const submitHandler = (e) => { 
     e.preventDefault(); 
@@ -3966,18 +3968,22 @@ function closeSingleHoursSetup() {
   document.getElementById("modalBackdrop").classList.remove("active");
 }
 
-function populateCategoriesAndHours(catId, hrId) { 
+function populateCategoriesAndHours(catId, hrId, onReady) { 
   let catSelect = document.getElementById(catId), hrSelect = document.getElementById(hrId); 
   catSelect.innerHTML = '<option disabled selected>Loading...</option>'; 
   hrSelect.innerHTML = '<option disabled selected>Loading...</option>'; 
+  let pending = 2;
+  const done = () => { if (--pending === 0 && typeof onReady === 'function') onReady(); };
   google.script.run.withSuccessHandler(cats => { 
     catSelect.innerHTML = '<option value="" disabled selected>Select Category</option>';
     cats.forEach(c => catSelect.appendChild(new Option(c, c))); 
-  }).getActiveCategories('normal');  // ✅ Added 'normal'
+    done();
+  }).withFailureHandler(done).getActiveCategories('normal');
   google.script.run.withSuccessHandler(hrs => { 
     hrSelect.innerHTML = '<option value="" disabled selected>Select Hours</option>'; 
     hrs.forEach(h => hrSelect.appendChild(new Option(h, h))); 
-  }).getHoursOptions('normal');  // ✅ Added 'normal'
+    done();
+  }).withFailureHandler(done).getHoursOptions('normal');
 }
 
 function showHoursStatusDashboard() { 
