@@ -2002,6 +2002,63 @@
     visibility: visible !important;
 }
 
+/* ===== COMPACT MANUAL ATTENDANCE LAYOUT — static header/footer, scrollable list ===== */
+.attn-page:not(.d-none) {
+  position: fixed; top: 0; bottom: 0; left: 0; right: 0;
+  width: 100%; max-width: 600px; margin: 0 auto;
+  height: 100vh; height: 100dvh;
+  display: flex; flex-direction: column;
+  border-radius: 0; z-index: 50; overflow: hidden;
+}
+.attn-page .card-header { flex: 0 0 auto; padding-top: calc(15px + env(safe-area-inset-top)); }
+.attn-page .card-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; padding: 0; }
+.attn-page .attn-top { flex: 0 0 auto; padding: 10px 14px 2px; }
+.attn-page .attn-top > * { margin-bottom: 8px; }
+.attn-page .attn-top > *:last-child { margin-bottom: 0; }
+.attn-page .attn-top .nav-bar { margin-bottom: 8px; padding-bottom: 8px; gap: 8px; align-items: center; }
+.attn-page .attn-top .nav-btn { font-size: 18px; padding: 4px 6px; }
+.attn-page .attn-top .nav-bar .nav-btn:last-child { margin-left: 0; }
+.attn-page .nav-title { flex: 1; min-width: 0; text-align: center; font-size: 12px; color: var(--gray-700); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attn-page .nav-title strong { color: var(--gray-900); }
+.attn-page .attn-list {
+  flex: 1 1 auto; min-height: 0; max-height: none;
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: 0 12px 6px; margin: 0;
+}
+.attn-page .attn-bottom {
+  flex: 0 0 auto; display: flex; gap: 8px;
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--gray-200);
+}
+.attn-page .attn-bottom .btn { margin: 0; padding: 9px 12px; font-size: 13px; }
+.attn-page .attn-bottom .btn-secondary { flex: 0 0 auto; width: 46px; padding: 9px 0; }
+.attn-page .attn-bottom .btn-primary { flex: 1; }
+
+/* Hours +/- step buttons (touch-friendly, one line) */
+.hours-step {
+  width: 28px; height: 30px; border: 1px solid var(--gray-200); background: var(--gray-100);
+  color: var(--gray-900); border-radius: 7px; font-size: 16px; font-weight: 700; line-height: 1;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0;
+}
+.hours-step:active { background: var(--gray-200); }
+.hours-step:disabled { opacity: .5; }
+
+/* Compact rows */
+.attn-page .member-item {
+  flex-direction: row; align-items: center; flex-wrap: nowrap;
+  gap: 4px 6px; padding: 6px 8px; margin-bottom: 5px;
+}
+.attn-page .member-info { flex: 1 1 auto; min-width: 0; overflow: visible; }
+.attn-page .member-name { font-size: 0.82rem; line-height: 1.25; white-space: normal; word-break: break-word; }
+.attn-page .member-dept { display: none; }
+.attn-page .member-ids { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attn-page .attendance-buttons { gap: 4px; flex-wrap: nowrap; align-items: center; flex-shrink: 0; }
+.attn-page .attendance-btn { padding: 5px 0; width: 30px; min-width: 30px; font-size: 12px; font-weight: 700; flex: 0 0 auto; }
+.attn-page .attendance-summary { gap: 6px; margin-bottom: 8px; }
+.attn-page .summary-item { padding: 6px; font-size: 12px; }
+.attn-page .hours-banner { padding: 6px 10px; font-size: 12px; }
+.attn-page .attn-top .text-center { font-size: 13px; }
+.attn-page .attn-search { padding: 8px 12px; font-size: 13px; }
 
   </style>
 </head>
@@ -2100,77 +2157,61 @@
   </div>
 
   <!-- MANUAL ATTENDANCE PAGE -->
-  <div id="attendancePage" class="card d-none">
+    <div id="attendancePage" class="card d-none attn-page">
     <div class="card-header"><h3>Manual Attendance</h3></div>
     <div class="card-body">
-      <div class="nav-bar"><button class="nav-btn" onclick="handleNavigation('welcomeContainer')"><i class="fas fa-home"></i></button><button class="nav-btn" onclick="showLogoutPopup()"><i class="fas fa-sign-out-alt"></i></button></div>
-      <p class="text-center">Class: <strong id="attendanceClassSection"></strong> | Date: <strong id="dateForToday"></strong></p>
-          <div class="alert alert-info text-center mb-3" id="attendanceHoursDisplay">
-      <i class="fas fa-clock"></i> Hours: <strong id="attendanceHoursValue">--</strong> &nbsp;|&nbsp; 
-      <i class="fas fa-tag"></i> Category: <strong id="attendanceCategoryValue">--</strong>
-    </div>
-      <div class="attendance-summary"><div class="summary-item summary-present"><i class="fas fa-check-circle"></i><br><span id="presentCount">0</span>/<span class="totalCount">0</span></div><div class="summary-item summary-absent"><i class="fas fa-times-circle"></i><br><span id="absentCount">0</span>/<span class="totalCount">0</span></div><div class="summary-item summary-leave"><i class="fas fa-umbrella-beach"></i><br><span id="leaveCount">0</span>/<span class="totalCount">0</span></div></div>
-      <input type="text" class="form-control mb-3" id="studentSearch" placeholder="Search student..." oninput="filterStudentList()">
-      <div id="attendanceFeedback" class="alert d-none"></div>
-      <ul id="studentList" class="member-list"></ul>
-      <button class="btn btn-secondary btn-block mt-2" onclick="markRemainingAsAbsentManual()">Mark Remaining as Absent</button>
-      <button class="btn btn-primary btn-block mt-2" id="markBtn" onclick="validateAndMarkAttendance()">Submit Attendance</button>
+      <div class="attn-top">
+        <div class="nav-bar">
+          <button class="nav-btn" onclick="handleNavigation('welcomeContainer')"><i class="fas fa-home"></i></button>
+          <div class="nav-title">Class: <strong id="attendanceClassSection"></strong> | <strong id="dateForToday"></strong></div>
+          <button class="nav-btn" onclick="showLogoutPopup()"><i class="fas fa-sign-out-alt"></i></button>
+        </div>
+        <div class="alert alert-info text-center hours-banner" id="attendanceHoursDisplay">
+          <i class="fas fa-clock"></i> Hours: <strong id="attendanceHoursValue">--</strong> &nbsp;|&nbsp; 
+          <i class="fas fa-tag"></i> Category: <strong id="attendanceCategoryValue">--</strong>
+        </div>
+        <div class="attendance-summary"><div class="summary-item summary-present"><i class="fas fa-check-circle"></i><br><span id="presentCount">0</span>/<span class="totalCount">0</span></div><div class="summary-item summary-absent"><i class="fas fa-times-circle"></i><br><span id="absentCount">0</span>/<span class="totalCount">0</span></div><div class="summary-item summary-leave"><i class="fas fa-umbrella-beach"></i><br><span id="leaveCount">0</span>/<span class="totalCount">0</span></div></div>
+        <input type="text" class="form-control attn-search" id="studentSearch" placeholder="Search student..." oninput="filterStudentList()">
+        <div id="attendanceFeedback" class="alert d-none"></div>
+      </div>
+      <ul id="studentList" class="member-list attn-list"></ul>
+      <div class="attn-bottom">
+        <button class="btn btn-secondary" onclick="markRemainingAsAbsentManual()" title="Mark remaining as Absent"><i class="fas fa-user-xmark"></i></button>
+        <button class="btn btn-primary" id="markBtn" onclick="validateAndMarkAttendance()"><i class="fas fa-paper-plane"></i> Submit Attendance</button>
+      </div>
     </div>
   </div>
 
   <!-- BARCODE ATTENDANCE PAGE with camera controls -->
-  <div id="barcodeAttendancePage" class="card d-none">
+  <div id="barcodeAttendancePage" class="card d-none attn-page">
   <div class="card-header"><h3>QR Code Attendance</h3></div>
   <div class="card-body">
-    <div class="nav-bar">
-      <button class="nav-btn" onclick="handleNavigation('welcomeContainer')"><i class="fas fa-home"></i></button>
-      <button class="nav-btn" onclick="showLogoutPopup()"><i class="fas fa-sign-out-alt"></i></button>
-    </div>
-    <p class="text-center">Class: <strong id="barcodeAttendanceClassSection"></strong> | Date: <strong id="barcodeDateForToday"></strong></p>
-        <div class="alert alert-info text-center mb-3" id="barcodeHoursDisplay">
-      <i class="fas fa-clock"></i> Hours: <strong id="barcodeHoursValue">--</strong> &nbsp;|&nbsp; 
-      <i class="fas fa-tag"></i> Category: <strong id="barcodeCategoryValue">--</strong>
-    </div>
-    <div class="attendance-summary">
-      <div class="summary-item summary-present"><i class="fas fa-check-circle"></i><br><span id="barcodePresentCount">0</span>/<span class="barcodeTotalCount">0</span></div>
-      <div class="summary-item summary-absent"><i class="fas fa-times-circle"></i><br><span id="barcodeAbsentCount">0</span>/<span class="barcodeTotalCount">0</span></div>
-      <div class="summary-item summary-leave"><i class="fas fa-umbrella-beach"></i><br><span id="barcodeLeaveCount">0</span>/<span class="barcodeTotalCount">0</span></div>
-    </div>
-    <div class="d-flex justify-between align-center mb-2"><span>Scanned: <span id="scanCount">0</span>/<span id="totalScanCount">0</span></span></div>
-    <div class="progress mb-3"><div class="progress-fill" id="scanProgress"></div></div>
-    
-    <!-- SIMPLIFIED: Popup Scanner Only -->
-    <div class="text-center mb-3">
-      <div class="alert alert-info">
-        <i class="fas fa-info-circle"></i> 
-        <strong>Popup Scanner</strong> - Click the button below to open the QR scanner in a new window.
-        <br><small>Popup window provides better camera access and full-screen experience.</small>
+    <div class="attn-top">
+      <div class="nav-bar">
+        <button class="nav-btn" onclick="handleNavigation('welcomeContainer')"><i class="fas fa-home"></i></button>
+        <div class="nav-title">Class: <strong id="barcodeAttendanceClassSection"></strong> | <strong id="barcodeDateForToday"></strong></div>
+        <button class="nav-btn" onclick="showLogoutPopup()"><i class="fas fa-sign-out-alt"></i></button>
       </div>
-      
-      <button class="btn btn-success btn-lg mb-2" onclick="openBarcodeScannerPopup()">
-        <i class="fas fa-qrcode"></i> Launch Scanner
-      </button>
-      
-      <div class="alert alert-secondary mt-2" style="font-size: 12px;">
-        <i class="fas fa-lightbulb"></i> Tips:
-        <ul class="mb-0 mt-1 text-start">
-          <li>Allow popups when prompted</li>
-          <li>Grant camera permission when asked</li>
-          <li>Position barcode clearly in the frame</li>
-        </ul>
+      <div class="alert alert-info text-center hours-banner" id="barcodeHoursDisplay">
+        <i class="fas fa-clock"></i> Hours: <strong id="barcodeHoursValue">--</strong> &nbsp;|&nbsp; 
+        <i class="fas fa-tag"></i> Category: <strong id="barcodeCategoryValue">--</strong>
       </div>
+      <div class="attendance-summary">
+        <div class="summary-item summary-present"><i class="fas fa-check-circle"></i><br><span id="barcodePresentCount">0</span>/<span class="barcodeTotalCount">0</span></div>
+        <div class="summary-item summary-absent"><i class="fas fa-times-circle"></i><br><span id="barcodeAbsentCount">0</span>/<span class="barcodeTotalCount">0</span></div>
+        <div class="summary-item summary-leave"><i class="fas fa-umbrella-beach"></i><br><span id="barcodeLeaveCount">0</span>/<span class="barcodeTotalCount">0</span></div>
+      </div>
+      <div class="d-flex justify-between align-center" style="font-size:12px;"><span>Scanned: <span id="scanCount">0</span>/<span id="totalScanCount">0</span></span></div>
+      <div class="progress"><div class="progress-fill" id="scanProgress"></div></div>
+      <button class="btn btn-success btn-block" onclick="openBarcodeScannerPopup()"><i class="fas fa-qrcode"></i> Launch Scanner</button>
+      <input type="text" class="form-control attn-search" id="barcodeStudentSearch" placeholder="Search student..." oninput="filterBarcodeStudentList()">
+      <div id="barcodeAttendanceFeedback" class="alert d-none"></div>
     </div>
-    
-    <input type="text" class="form-control mb-3" id="barcodeStudentSearch" placeholder="Search student..." oninput="filterBarcodeStudentList()">
-    <div id="barcodeAttendanceFeedback" class="alert d-none"></div>
-    
-    <div class="collapsible-list-toggle" onclick="toggleStudentList('barcodeStudentList')">
-      <i class="fas fa-chevron-down"></i> <span>Student List</span>
+    <ul id="barcodeStudentList" class="member-list attn-list"></ul>
+    <div class="attn-bottom">
+      <button class="btn btn-secondary" onclick="markRemainingAsAbsent()" title="Mark remaining as Absent"><i class="fas fa-user-xmark"></i></button>
+      <button class="btn btn-primary" id="barcodeMarkBtn" onclick="validateAndMarkBarcodeAttendance()"><i class="fas fa-paper-plane"></i> Submit Attendance</button>
     </div>
-    <ul id="barcodeStudentList" class="member-list"></ul>
-    
-    <button class="btn btn-secondary btn-block mt-2" onclick="markRemainingAsAbsent()">Mark Remaining as Absent</button>
-    <button class="btn btn-primary btn-block mt-2" id="barcodeMarkBtn" onclick="validateAndMarkBarcodeAttendance()">Submit Attendance</button>
   </div>
 </div>
 
@@ -2181,34 +2222,27 @@
   </div>
 
   <!-- PREVIOUS BARCODE ATTENDANCE CONTAINER -->
-  <div id="previousBarcodeAttendanceContainer" class="card d-none">
+  <div id="previousBarcodeAttendanceContainer" class="card d-none attn-page">
     <div class="card-header"><h3>Previous QR Code Attendance</h3></div>
     <div class="card-body">
-      <div class="nav-bar"><button class="nav-btn" onclick="handleNavigation('welcomeContainer')"><i class="fas fa-home"></i></button><button class="nav-btn" onclick="showLogoutPopup()"><i class="fas fa-sign-out-alt"></i></button></div>
-      <p class="text-center">Class: <strong id="previousBarcodeClassSection"></strong> | Date: <strong id="previousBarcodeDate"></strong></p>
-      <div class="attendance-summary"><div class="summary-item summary-present"><i class="fas fa-check-circle"></i><br><span id="prevBarcodePresentCount">0</span>/<span class="prevBarcodeTotalCount">0</span></div><div class="summary-item summary-absent"><i class="fas fa-times-circle"></i><br><span id="prevBarcodeAbsentCount">0</span>/<span class="prevBarcodeTotalCount">0</span></div><div class="summary-item summary-leave"><i class="fas fa-umbrella-beach"></i><br><span id="prevBarcodeLeaveCount">0</span>/<span class="prevBarcodeTotalCount">0</span></div></div>
-      <div class="d-flex justify-between align-center mb-2"><span>Scanned: <span id="prevBarcodeScanCount">0</span>/<span id="prevBarcodeTotalScanCount">0</span></span></div>
-      <div class="progress mb-3"><div class="progress-fill" id="prevBarcodeScanProgress"></div></div>
-      
-<div class="text-center mb-3">
-  <div class="alert alert-info">
-    <i class="fas fa-info-circle"></i> 
-    <strong>Popup Scanner</strong> - Click the button below to open the QR scanner.
-  </div>
-  <button class="btn btn-success" onclick="openBarcodeScannerPopup()">
-    <i class="fas fa-qrcode"></i> Launch Scanner
-  </button>
-</div>
-
-      <input type="text" class="form-control mb-3 mt-2" id="prevBarcodeStudentSearch" placeholder="Search student..." oninput="filterPrevBarcodeStudentList()">
-      <div id="prevBarcodeAttendanceFeedback" class="alert d-none"></div>
-      
-      <div class="collapsible-list-toggle" onclick="toggleStudentList('prevBarcodeStudentList')">
-        <i class="fas fa-chevron-down"></i> <span>Toggle Student List</span>
+      <div class="attn-top">
+        <div class="nav-bar">
+          <button class="nav-btn" onclick="handleNavigation('welcomeContainer')"><i class="fas fa-home"></i></button>
+          <div class="nav-title">Class: <strong id="previousBarcodeClassSection"></strong> | <strong id="previousBarcodeDate"></strong></div>
+          <button class="nav-btn" onclick="showLogoutPopup()"><i class="fas fa-sign-out-alt"></i></button>
+        </div>
+        <div class="attendance-summary"><div class="summary-item summary-present"><i class="fas fa-check-circle"></i><br><span id="prevBarcodePresentCount">0</span>/<span class="prevBarcodeTotalCount">0</span></div><div class="summary-item summary-absent"><i class="fas fa-times-circle"></i><br><span id="prevBarcodeAbsentCount">0</span>/<span class="prevBarcodeTotalCount">0</span></div><div class="summary-item summary-leave"><i class="fas fa-umbrella-beach"></i><br><span id="prevBarcodeLeaveCount">0</span>/<span class="prevBarcodeTotalCount">0</span></div></div>
+        <div class="d-flex justify-between align-center" style="font-size:12px;"><span>Scanned: <span id="prevBarcodeScanCount">0</span>/<span id="prevBarcodeTotalScanCount">0</span></span></div>
+        <div class="progress"><div class="progress-fill" id="prevBarcodeScanProgress"></div></div>
+        <button class="btn btn-success btn-block" onclick="openBarcodeScannerPopup()"><i class="fas fa-qrcode"></i> Launch Scanner</button>
+        <input type="text" class="form-control attn-search" id="prevBarcodeStudentSearch" placeholder="Search student..." oninput="filterPrevBarcodeStudentList()">
+        <div id="prevBarcodeAttendanceFeedback" class="alert d-none"></div>
       </div>
-      <ul id="prevBarcodeStudentList" class="member-list"></ul>
-      <button class="btn btn-secondary btn-block mt-2" onclick="markPrevRemainingAsAbsent()">Mark Remaining as Absent</button>
-      <button class="btn btn-primary btn-block mt-2" id="prevBarcodeMarkBtn" onclick="validateAndMarkPrevBarcodeAttendance()">Submit Attendance</button>
+      <ul id="prevBarcodeStudentList" class="member-list attn-list"></ul>
+      <div class="attn-bottom">
+        <button class="btn btn-secondary" onclick="markPrevRemainingAsAbsent()" title="Mark remaining as Absent"><i class="fas fa-user-xmark"></i></button>
+        <button class="btn btn-primary" id="prevBarcodeMarkBtn" onclick="validateAndMarkPrevBarcodeAttendance()"><i class="fas fa-paper-plane"></i> Submit Attendance</button>
+      </div>
     </div>
   </div>
 
@@ -4311,14 +4345,13 @@ function renderStudentList(students, listId, prefix) {
       if (s.Hours !== null && s.Hours !== undefined && s.Hours !== '' && Number(s.Hours) > 0) {
         initVal = Math.min(ch, Math.max(0.25, Number(s.Hours)));
       }
-            hoursHtml = `<div class="student-hours-control" data-classhours="${ch}" style="flex:0 0 100%; width:100%; display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px; border-top:1px dashed var(--gray-200);">
-        <span style="font-size:12px; color:var(--gray-700); margin-right:auto;"><i class="fas fa-clock"></i> Present hours</span>
-        <button type="button" class="btn btn-sm btn-secondary hours-minus" style="padding:4px 12px; line-height:1; min-width:38px;">&minus;</button>
-        <input type="number" class="student-hours-input" value="${initVal}" min="0.25" max="${ch}" step="0.25" readonly disabled style="width:64px; text-align:center; padding:5px; border:1px solid var(--gray-200); border-radius:8px; background:var(--card-bg); color:var(--gray-900); font-weight:600;">
-        <button type="button" class="btn btn-sm btn-secondary hours-plus" style="padding:4px 12px; line-height:1; min-width:38px;">+</button>
+            hoursHtml = `<div class="student-hours-control" data-classhours="${ch}" style="display:inline-flex; align-items:center; gap:3px; margin-left:4px;">
+        <button type="button" class="hours-step hours-minus">&minus;</button>
+        <input type="number" class="student-hours-input" value="${initVal}" min="0.25" max="${ch}" step="0.25" readonly disabled style="width:40px; text-align:center; padding:3px; border:1px solid var(--gray-200); border-radius:7px; background:var(--card-bg); color:var(--gray-900); font-weight:600; font-size:12px;">
+        <button type="button" class="hours-step hours-plus">+</button>
       </div>`;
     }
-    li.innerHTML = `<div class="member-info"><div class="member-name">${escapeHtml(s.Student_Name)}</div><div class="member-dept">${s.Student_Class}-${s.Student_Section}</div><div class="member-ids">ID: ${s.Std_ID} | Barcode: ${s.Barcode_ID}</div></div><div class="attendance-buttons" id="${prefix}_${s.Std_ID}"><button class="attendance-btn present-btn ${s.attendanceStatus === 'Present' ? 'active present' : ''}" data-status="Present">Present</button><button class="attendance-btn absent-btn ${s.attendanceStatus === 'Absent' ? 'active absent' : ''}" data-status="Absent">Absent</button><button class="attendance-btn leave-btn ${s.attendanceStatus === 'Leave' ? 'active leave' : ''}" data-status="Leave">Leave</button></div>${hoursHtml}`; 
+    li.innerHTML = `<div class="member-info"><div class="member-name">${escapeHtml(s.Student_Name)}</div><div class="member-dept">${s.Student_Class}-${s.Student_Section}</div><div class="member-ids">${s.Std_ID} | ${s.Barcode_ID}</div></div><div class="attendance-buttons" id="${prefix}_${s.Std_ID}"><button class="attendance-btn present-btn ${s.attendanceStatus === 'Present' ? 'active present' : ''}" data-status="Present" title="Present">P</button><button class="attendance-btn absent-btn ${s.attendanceStatus === 'Absent' ? 'active absent' : ''}" data-status="Absent" title="Absent">A</button><button class="attendance-btn leave-btn ${s.attendanceStatus === 'Leave' ? 'active leave' : ''}" data-status="Leave" title="Leave">L</button>${hoursHtml}</div>`; 
     container.appendChild(li); 
   }); 
   bindAttendanceButtons(); 
@@ -4347,14 +4380,14 @@ function bindStudentHoursControls() {
   document.querySelectorAll(".student-hours-control").forEach(ctrl => {
     const input = ctrl.querySelector(".student-hours-input");
     const maxH = Number(ctrl.getAttribute("data-classhours")) || 0;
-    ctrl.querySelector(".hours-minus").onclick = function() {
-      let v = Number(input.value) || 0;
-      input.value = Math.max(0.25, Math.round((v - 0.25) * 100) / 100);
-    };
-    ctrl.querySelector(".hours-plus").onclick = function() {
-      let v = Number(input.value) || 0;
-      input.value = Math.min(maxH, Math.round((v + 0.25) * 100) / 100);
-    };
+    const clamp = v => Math.min(maxH, Math.max(0.25, Math.round(v * 100) / 100));
+    const step = dir => { if (input.disabled) return; input.value = clamp((Number(input.value) || 0) + dir * 0.25); };
+    const minus = ctrl.querySelector(".hours-minus");
+    const plus = ctrl.querySelector(".hours-plus");
+    if (minus) minus.onclick = () => step(-1);
+    if (plus) plus.onclick = () => step(1);
+    // Bonus: mouse wheel on desktop
+    ctrl.addEventListener("wheel", e => { if (input.disabled) return; e.preventDefault(); step(e.deltaY < 0 ? 1 : -1); }, { passive: false });
   });
   syncAllStudentHoursControls();
 }
