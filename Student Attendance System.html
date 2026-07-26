@@ -2054,6 +2054,11 @@
 .attn-page .member-ids { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .attn-page .attendance-buttons { gap: 4px; flex-wrap: nowrap; align-items: center; flex-shrink: 0; }
 .attn-page .attendance-btn { padding: 5px 0; width: 30px; min-width: 30px; font-size: 12px; font-weight: 700; flex: 0 0 auto; }
+/* Laptop/desktop: show full Present/Absent/Leave; mobile keeps P/A/L */
+@media (min-width: 768px) {
+  .attn-page .attendance-btn { width: auto; min-width: 0; padding: 6px 14px; font-size: 0; }
+  .attn-page .attendance-btn::after { content: attr(data-status); font-size: 12px; font-weight: 700; }
+}
 .attn-page .attendance-summary { gap: 6px; margin-bottom: 8px; }
 .attn-page .summary-item { padding: 6px; font-size: 12px; }
 .attn-page .hours-banner { padding: 6px 10px; font-size: 12px; }
