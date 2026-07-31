@@ -733,7 +733,8 @@ function getStudentList(classSection, date) {
           Student_Class: studentData[i][classCol],
           Student_Section: studentData[i][sectionCol],
           Date_of_Joining: dateOfJoining ? dateOfJoining.toLocaleDateString('en-CA') : null,
-          attendanceStatus: 'Not marked'
+          attendanceStatus: 'Not marked',
+          Hours: null
         });
       }
     }
@@ -765,6 +766,11 @@ function getStudentList(classSection, date) {
           // Skip if this is an episodic record
           if (attendanceType !== 'Episodic') {
             studentsMap.get(stdId).attendanceStatus = attendanceData[j][attendanceHeaderMap.get('Status')] || 'Not marked';
+            const hrsIdx = attendanceHeaderMap.get('Hours');
+            if (hrsIdx !== undefined) {
+              const hrsVal = attendanceData[j][hrsIdx];
+              studentsMap.get(stdId).Hours = (hrsVal === '' || hrsVal === null || hrsVal === undefined) ? null : hrsVal;
+            }
           }
         }
       }
@@ -1102,9 +1108,16 @@ Logger.log(`Found ${existingRecordsByStudentDate.size} existing NORMAL records f
             const studentKey = String(record.Std_ID);
             const existing = existingRecordsByStudentDate.get(studentKey);
 
+                        // Hours to store: use sent per-student value if provided, else class hours
+            const desiredHours = (record.Hours !== undefined && record.Hours !== '' && record.Hours !== null)
+              ? record.Hours
+              : hoursCheck.hours;
+
             if (existing) {
               // ---- UPDATE existing row ----
-              if (existing.currentStatus !== record.Status) {
+              const existingHours = existing.data[hoursCol];
+              const hoursDiff = String(existingHours) !== String(desiredHours);
+              if (existing.currentStatus !== record.Status || hoursDiff) {
                 const updatedRow = [...existing.data]; // shallow copy
                 updatedRow[headerMap.get('Status')]      = record.Status;
                 updatedRow[headerMap.get('Timestamp')]   = new Date().toLocaleString();
@@ -1119,7 +1132,7 @@ Logger.log(`Found ${existingRecordsByStudentDate.size} existing NORMAL records f
     }
 
                                 // NEW: write Hours & Category
-                updatedRow[hoursCol] = hoursCheck.hours;
+                                updatedRow[hoursCol] = desiredHours;
                 updatedRow[categoryCol] = hoursCheck.category;
                 if (recIdCol !== undefined) updatedRow[recIdCol] = recId;
                 
@@ -1165,7 +1178,7 @@ if (attendanceTypeCol !== undefined) {
 }
 
               // NEW: write Hours & Category
-              newRow[hoursCol] = hoursCheck.hours;
+                            newRow[hoursCol] = desiredHours;
               newRow[categoryCol] = hoursCheck.category;
               if (recIdCol !== undefined) newRow[recIdCol] = recId;
 
@@ -2276,7 +2289,8 @@ function getUserPermissions(username) {
           canDownloadReports: data[i][6] === 'TRUE' || data[i][6] === true,
           canDownloadAllReports: data[i][7] === 'TRUE' || data[i][7] === true,
           canMarkEpisodic: data[i][8] === 'TRUE' || data[i][8] === true,
-          canManageEpisodicEvents: data[i][10] === 'TRUE' || data[i][10] === true
+          canManageEpisodicEvents: data[i][10] === 'TRUE' || data[i][10] === true,
+          canEditStudentHours: data[i][11] === 'TRUE' || data[i][11] === true
         };
       }
     }
@@ -2289,7 +2303,8 @@ function getUserPermissions(username) {
       canDownloadReports: false,
       canDownloadAllReports: false,
       canMarkEpisodic: false,
-      canManageEpisodicEvents: false
+      canManageEpisodicEvents: false,
+      canEditStudentHours: false
     };
   } catch (e) {
     Logger.log('Error in getUserPermissions: ' + e.message);
