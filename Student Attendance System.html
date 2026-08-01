@@ -2591,8 +2591,9 @@
         <input type="number" class="form-control mt-2" id="eventCustomHoursInput" style="display:none;" placeholder="Enter custom hours" min="0.5" step="0.5">
         <small class="text-muted" id="eventHoursHelp"></small>
       </div>
-      <div class="mb-3">
+            <div class="mb-3">
         <label class="form-label">Class Sections * (Ctrl/Cmd+Click for multiple)</label>
+        <input type="text" class="form-control mb-2" id="eventPopupClassSearch" placeholder="Search class..." oninput="filterEventPopupClassSections()">
         <select class="form-control batch-class-select" id="eventPopupClassSections" multiple size="5"></select>
       </div>
       <div class="d-flex gap-2">
@@ -3302,6 +3303,7 @@ function editEpisodicEvent(eventId) {
   document.getElementById("eventPopupHours").innerHTML = `<option>${escapeHtml(String(ev.hours))}</option>`;
 
   // Class sections (editable) — preselect current
+  document.getElementById("eventPopupClassSearch").value = "";
   const clsSel = document.getElementById("eventPopupClassSections");
   const current = String(ev.classSections || "").split(",").map(s => s.trim()).filter(Boolean);
   clsSel.innerHTML = "";
@@ -3340,6 +3342,7 @@ function openEpisodicEventPopup() {
   document.querySelector('#episodicEventPopup h3').innerHTML = '<i class="fas fa-calendar-plus me-2"></i>Create Episodic Event';
   document.querySelector('#episodicEventPopup button[type="submit"]').textContent = 'Save Event';
   document.getElementById("eventPopupName").value = "";
+  document.getElementById("eventPopupClassSearch").value = "";
   populateEpisodicEventDates();
   populateEpisodicEventClassSections();
   populateEpisodicEventCategoriesHours();
@@ -3410,6 +3413,14 @@ function populateEpisodicEventClassSections() {
   const sel = document.getElementById("eventPopupClassSections");
   sel.innerHTML = "";
   (assignedClassSections || []).forEach(cs => sel.appendChild(new Option(cs, cs)));
+}
+
+function filterEventPopupClassSections() {
+  const term = document.getElementById("eventPopupClassSearch").value.toLowerCase();
+  const sel = document.getElementById("eventPopupClassSections");
+  Array.from(sel.options).forEach(opt => {
+    opt.style.display = opt.text.toLowerCase().includes(term) ? "" : "none";
+  });
 }
 
 function populateEpisodicEventCategoriesHours() {
