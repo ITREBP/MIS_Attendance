@@ -839,14 +839,15 @@ function getEpisodicStudentList(classSection, date, eventName) {
           studentStatus === 'active' &&
           shouldIncludeByDate) {
         
-        studentsMap.set(String(studentData[i][stdIdCol]), {
+          studentsMap.set(String(studentData[i][stdIdCol]), {
           Std_ID: String(studentData[i][stdIdCol]),
           Barcode_ID: studentData[i][barcodeIdCol],
           Student_Name: studentData[i][nameCol],
           Student_Class: studentData[i][classCol],
           Student_Section: studentData[i][sectionCol],
           Date_of_Joining: dateOfJoining ? dateOfJoining.toLocaleDateString('en-CA') : null,
-          attendanceStatus: 'Not Applicable'  // Default for episodic
+          attendanceStatus: 'Not Applicable',  // Default for episodic
+          Hours: null
         });
       }
     }
@@ -865,16 +866,17 @@ function getEpisodicStudentList(classSection, date, eventName) {
     const headers = attendanceData[0];
     
     // Find column indices
-    const stdIdColAtt = headers.indexOf('Std_ID');
+        const stdIdColAtt = headers.indexOf('Std_ID');
     const dateColAtt = headers.indexOf('Date');
     const classColAtt = headers.indexOf('Class_Section');
     const typeColAtt = headers.indexOf('Attendance_Type');
     const eventColAtt = headers.indexOf('Event_Name');
     const statusColAtt = headers.indexOf('Status');
+    const hoursColAtt = headers.indexOf('Hours');
     
     const targetDateStr = new Date(date).toLocaleDateString('en-CA');
     
-    // Create a map of studentId -> status ONLY for EPISODIC records
+    // Create a map of studentId -> {status, hours} ONLY for EPISODIC records
     const episodicStatusMap = new Map();
     
     for (let i = 1; i < attendanceData.length; i++) {
@@ -890,7 +892,7 @@ function getEpisodicStudentList(classSection, date, eventName) {
           rowEvent === eventName &&
           rowClass === classSection) {
         const studentId = String(row[stdIdColAtt]);
-        episodicStatusMap.set(studentId, row[statusColAtt]);
+        episodicStatusMap.set(studentId, { status: row[statusColAtt], hours: hoursColAtt !== -1 ? row[hoursColAtt] : null });
         Logger.log(`Found EPISODIC record: Student ${studentId} → ${row[statusColAtt]}`);
       }
     }
@@ -899,7 +901,9 @@ function getEpisodicStudentList(classSection, date, eventName) {
     for (const student of studentsMap.values()) {
       const studentId = String(student.Std_ID);
       if (episodicStatusMap.has(studentId)) {
-        student.attendanceStatus = episodicStatusMap.get(studentId);
+        const rec = episodicStatusMap.get(studentId);
+        student.attendanceStatus = rec.status;
+        student.Hours = (rec.hours === '' || rec.hours === null || rec.hours === undefined) ? null : rec.hours;
         Logger.log(`Student ${studentId} has episodic status: ${student.attendanceStatus}`);
       } else {
         // No episodic record found - default to 'Not Applicable'
@@ -1557,20 +1561,22 @@ if (hoursCheck.exists) {
         continue;
       }
       
-      const existing = existingRecords.get(studentId);
+            const existing = existingRecords.get(studentId);
       const now = new Date();
+      const desiredHours = (newStatus === 'Present' && item.hours !== undefined && item.hours !== '' && item.hours !== null) ? item.hours : finalHours;
       
       if (existing) {
-        // Update existing record if status changed
-        if (existing.currentStatus !== newStatus) {
+        // Update existing record if status OR hours changed
+        const hoursDiff = String(existing.rowData[hoursCol]) !== String(desiredHours);
+        if (existing.currentStatus !== newStatus || hoursDiff) {
           // Create updated row data based on existing row
           const updatedRow = [...existing.rowData];
           updatedRow[statusCol] = newStatus;
           updatedRow[timestampCol] = now.toLocaleString();
           updatedRow[teacherCol] = username;
           
-          // Ensure hours and category are from Daily_Hours_Setup (not custom if provided)
- updatedRow[hoursCol] = finalHours;
+          // Hours: per-student value when Present (if provided), else event's default hours
+ updatedRow[hoursCol] = desiredHours;
 updatedRow[categoryCol] = finalCategory;
           if (recIdCol !== undefined) updatedRow[recIdCol] = recId;
 
@@ -1607,8 +1613,8 @@ updatedRow[categoryCol] = finalCategory;
         newRow[teacherCol] = username;
         newRow[classCol] = classSection;
         
-        // Use hours from Daily_Hours_Setup validation (not the passed hours parameter)
-        newRow[hoursCol] = finalHours;
+                // Hours: per-student value when Present (if provided), else event's default hours
+        newRow[hoursCol] = desiredHours;
 newRow[categoryCol] = finalCategory;
         if (recIdCol !== undefined) newRow[recIdCol] = recId;
         if (typeCol !== undefined) newRow[typeCol] = 'Episodic';

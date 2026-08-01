@@ -2020,6 +2020,10 @@
 .attn-page .attn-top .nav-bar .nav-btn:last-child { margin-left: 0; }
 .attn-page .nav-title { flex: 1; min-width: 0; text-align: center; font-size: 12px; color: var(--gray-700); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .attn-page .nav-title strong { color: var(--gray-900); }
+.attn-page .attn-hd { flex: 1; min-width: 0; text-align: center; }
+.attn-page .attn-hd-title { font-size: 13px; font-weight: 700; color: var(--gray-900); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attn-page .attn-hd-sub { font-size: 11px; color: var(--gray-700); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attn-page .attn-hd-sub strong { color: var(--gray-900); }
 .attn-page .attn-list {
   flex: 1 1 auto; min-height: 0; max-height: none;
   overflow-y: auto; -webkit-overflow-scrolling: touch;
@@ -2432,84 +2436,74 @@
 
 
 <!-- EPISODIC ATTENDANCE PAGE -->
-<div id="episodicAttendancePage" class="card d-none">
+<div id="episodicAttendancePage" class="card d-none attn-page">
   <div class="card-header" style="background: linear-gradient(135deg, #f57c00, #ef6c00);">
     <h3><i class="fas fa-hiking"></i> Episodic Attendance</h3>
-    <small>Field Trips, Camps, Visits</small>
   </div>
   <div class="card-body">
-    <div class="nav-bar">
-      <button class="nav-btn" onclick="handleNavigation('welcomeContainer')"><i class="fas fa-home"></i></button>
-      <button class="nav-btn" onclick="showLogoutPopup()"><i class="fas fa-sign-out-alt"></i></button>
-    </div>
-    
-    <div class="alert alert-info mb-3">
-      <i class="fas fa-info-circle"></i> 
-      <strong>Episodic Class Mode</strong> - Mark students who attended (Present) or did not attend (Not Applicable). Both statuses will be saved to database.
-    </div>
-    
-    <!-- Dashboard Class Section Display (Read-only) -->
-<div class="alert alert-secondary mb-3" id="episodicCurrentClassAlert">
-      <strong>Current Class:</strong> <span id="episodicCurrentClass">Loading...</span>
-      <small class="text-muted d-block mt-1">Class section is managed from Homepage. Please go back to select a different class.</small>
-    </div>
-    
-     <div class="row">
-      <div class="col-md-6 mb-3">
-        <label class="form-label">Date *</label>
-        <select class="form-control" id="episodicDate" required></select>
-      </div>
-      <div class="col-md-6 mb-3">
-        <label class="form-label">Event *</label>
-        <select class="form-control" id="episodicEventName" required>
-          <option value="" disabled selected>Select date first</option>
-        </select>
-        <small class="text-muted">Events will appear here after you select a date.</small>
+    <div class="attn-top">
+      <div class="nav-bar">
+        <button class="nav-btn" onclick="handleNavigation('welcomeContainer')" title="Home"><i class="fas fa-home"></i></button>
+        <div class="attn-hd">
+          <div class="attn-hd-title">Episodic Attendance</div>
+          <div class="attn-hd-sub">Class: <strong id="episodicCurrentClass"></strong></div>
+        </div>
+        <button class="nav-btn" onclick="showLogoutPopup()" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
       </div>
     </div>
 
-    <!-- Hours Status Indicator - ADD THIS ENTIRE BLOCK -->
-<div class="row">
-  <div class="col-12 mb-3">
-    <div id="episodicHoursStatus" class="alert d-none" style="font-size: 13px; padding: 10px;">
-      <i class="fas fa-info-circle"></i> 
-      Hours Status: <span id="episodicHoursStatusText">Checking...</span>
+    <div class="attn-list">
+      <div class="alert alert-info mb-3">
+        <i class="fas fa-info-circle"></i>
+        <strong>Episodic Class Mode</strong> - Mark students who attended (Present) or did not attend (Not Applicable). Both statuses will be saved to database.
+      </div>
+
+      <small class="text-muted d-block mb-3">Class section is managed from Homepage. Please go back to select a different class.</small>
+
+      <div class="row">
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Date *</label>
+          <select class="form-control" id="episodicDate" required></select>
+        </div>
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Event *</label>
+          <select class="form-control" id="episodicEventName" required>
+            <option value="" disabled selected>Select date first</option>
+          </select>
+          <small class="text-muted">Events will appear here after you select a date.</small>
+        </div>
+      </div>
+
+      <div id="episodicHoursStatus" class="alert d-none hours-banner mb-3">
+        <i class="fas fa-info-circle"></i> Hours Status: <span id="episodicHoursStatusText">Checking...</span>
+      </div>
+
+      <div class="attendance-summary mb-3" style="font-size: 11px;">
+        <div class="summary-item summary-present" style="padding:5px;"><i class="fas fa-check-circle" style="font-size:11px;"></i><br>Present: <span id="episodicPresentCount">0</span>/<span id="episodicTotalCount">0</span></div>
+        <div class="summary-item summary-notapplicable" style="padding:5px;"><i class="fas fa-ban" style="font-size:11px;"></i><br>N/A: <span id="episodicNotApplicableCount">0</span>/<span id="episodicTotalCount2">0</span></div>
+      </div>
+
+      <input type="text" class="form-control attn-search mb-3" id="episodicStudentSearch" placeholder="Search student..." oninput="filterEpisodicStudentList()">
+
+      <div id="episodicAttendanceFeedback" class="alert d-none" style="min-height: 50px; margin-bottom: 10px;"></div>
+
+      <div class="mb-2" style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button type="button" class="btn btn-sm btn-success" onclick="selectAllEpisodicPresent()" style="flex: 1; min-width: 120px; background: #2e7d32; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600;">
+          <i class="fas fa-check-circle"></i> Mark All Present
+        </button>
+        <button type="button" class="btn btn-sm" onclick="markAllEpisodicNotApplicable()" style="flex: 1; min-width: 120px; background: #c62828; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600;">
+          <i class="fas fa-ban"></i> Mark All Not Applicable
+        </button>
+      </div>
+
+      <ul id="episodicStudentList" class="member-list"></ul>
     </div>
-  </div>
-</div> 
-        
-    <div class="attendance-summary mb-3">
-  <div class="summary-item summary-present">
-    <i class="fas fa-check-circle"></i><br>
-    Present: <span id="episodicPresentCount">0</span>/<span id="episodicTotalCount">0</span>
-  </div>
-  <div class="summary-item summary-notapplicable">
-    <i class="fas fa-ban"></i><br>
-    Not Applicable: <span id="episodicNotApplicableCount">0</span>/<span id="episodicTotalCount2">0</span>
-  </div>
-</div>     
-    <input type="text" class="form-control mb-3" id="episodicStudentSearch" 
-           placeholder="Search student..." oninput="filterEpisodicStudentList()">
-    
-<div id="episodicAttendanceFeedback" class="alert d-none" style="min-height: 50px; margin-bottom: 10px;"></div>
-    
-    <div class="mb-2" style="display: flex; gap: 8px; flex-wrap: wrap;">
-  <button type="button" class="btn btn-sm btn-success" onclick="selectAllEpisodicPresent()" style="flex: 1; min-width: 120px; background: #2e7d32; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; transition: all 0.3s;">
-    <i class="fas fa-check-circle"></i> Mark All Present
-  </button>
-  <button type="button" class="btn btn-sm" onclick="markAllEpisodicNotApplicable()" style="flex: 1; min-width: 120px; background: #c62828; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; transition: all 0.3s;">
-    <i class="fas fa-ban"></i> Mark All Not Applicable
-  </button>
-  <!-- <button type="button" class="btn btn-sm btn-warning" onclick="loadExistingAttendance()" style="flex: 0 1 auto; background: #ef6c00; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; transition: all 0.3s;">
-    <i class="fas fa-sync"></i> Load Existing
-  </button> -->
-</div>
-    
-    <ul id="episodicStudentList" class="member-list"></ul>
-    
-    <button class="btn btn-primary btn-block mt-3" id="episodicMarkBtn" onclick="submitEpisodicAttendance()">
-      <i class="fas fa-save"></i> Save All Statuses (Present & Not Applicable)
-    </button>
+
+    <div class="attn-bottom">
+      <button class="btn btn-primary" id="episodicMarkBtn" onclick="submitEpisodicAttendance()">
+        <i class="fas fa-save"></i> Save Statuses
+      </button>
+    </div>
   </div>
 </div>
 
@@ -2704,8 +2698,7 @@ function showEpisodicAttendanceForm() {
   }
 
   // Show current class (read-only, from dashboard)
-  document.getElementById("episodicCurrentClass").innerHTML =
-    `<strong>${currentUser.classSection}</strong> <span class="text-muted">(from Dashboard)</span>`;
+  document.getElementById("episodicCurrentClass").textContent = currentUser.classSection;
 
   // Reset tracking
   episodicSelectedStatuses.clear();
@@ -2993,38 +2986,34 @@ function renderEpisodicStudentList(students) {
     return;
   }
 
+  const eventHours = selectedEpisodicEvent ? Number(selectedEpisodicEvent.hours) : 0;
+  const showHours = userPermissions.canEditStudentHours && eventHours > 0;
+
   students.forEach(student => {
     const currentStatus = episodicSelectedStatuses.get(student.Std_ID) || 'Not Applicable';
     const isPresent = (currentStatus === 'Present');
     const isNotApplicable = (currentStatus === 'Not Applicable');
 
+    let hoursHtml = "";
+    if (showHours) {
+      let initVal = eventHours;
+      if (student.Hours !== null && student.Hours !== undefined && student.Hours !== '' && Number(student.Hours) > 0) {
+        initVal = Math.min(eventHours, Math.max(0.25, Number(student.Hours)));
+      }
+      hoursHtml = `<div class="student-hours-control" data-classhours="${eventHours}" style="display:inline-flex; align-items:center; gap:3px; margin-left:4px;">
+        <button type="button" class="hours-step hours-minus">&minus;</button>
+        <input type="number" class="student-hours-input" value="${initVal}" min="0.25" max="${eventHours}" step="0.25" readonly disabled style="width:40px; text-align:center; padding:3px; border:1px solid var(--gray-200); border-radius:7px; background:var(--card-bg); color:var(--gray-900); font-weight:600; font-size:12px;">
+        <button type="button" class="hours-step hours-plus">+</button>
+      </div>`;
+    }
+
     const li = document.createElement("li");
     li.className = "member-item";
-    li.innerHTML = `
-      <div class="member-info">
-        <div class="member-name">${escapeHtml(student.Student_Name)}</div>
-        <div class="member-dept">${student.Student_Class}-${student.Student_Section}</div>
-        <div class="member-ids">ID: ${student.Std_ID} | Barcode: ${student.Barcode_ID}</div>
-      </div>
-      <div class="attendance-buttons" style="display: flex; gap: 8px;">
-        <button class="attendance-btn present-btn ${isPresent ? 'active present' : ''}" 
-                data-student-id="${student.Std_ID}"
-                data-student-name="${escapeHtml(student.Student_Name)}"
-                onclick="setEpisodicStudentStatus(this, 'Present')">
-          <i class="fas ${isPresent ? 'fa-check-circle' : 'fa-circle'}"></i> 
-          Present
-        </button>
-        <button class="attendance-btn ${isNotApplicable ? 'active not-applicable' : ''}" 
-                data-student-id="${student.Std_ID}"
-                data-student-name="${escapeHtml(student.Student_Name)}"
-                onclick="setEpisodicStudentStatus(this, 'Not Applicable')">
-          <i class="fas ${isNotApplicable ? 'fa-ban' : 'fa-circle'}"></i> 
-          Not Applicable
-        </button>
-      </div>
-    `;
+    li.innerHTML = `<div class="member-info"><div class="member-name">${escapeHtml(student.Student_Name)}</div><div class="member-dept">${student.Student_Class}-${student.Student_Section}</div><div class="member-ids">${student.Std_ID} | ${student.Barcode_ID}</div></div><div class="attendance-buttons"><button class="attendance-btn present-btn ${isPresent ? 'active present' : ''}" data-status="Present" title="Present" data-student-id="${student.Std_ID}" data-student-name="${escapeHtml(student.Student_Name)}" onclick="setEpisodicStudentStatus(this, 'Present')">P</button><button class="attendance-btn ${isNotApplicable ? 'active not-applicable' : ''}" data-status="Not Applicable" title="Not Applicable" data-student-id="${student.Std_ID}" data-student-name="${escapeHtml(student.Student_Name)}" onclick="setEpisodicStudentStatus(this, 'Not Applicable')">N</button>${hoursHtml}</div>`;
     container.appendChild(li);
   });
+
+  bindStudentHoursControls();
 }
 
 function setEpisodicStudentStatus(button, status) {
@@ -3034,42 +3023,28 @@ function setEpisodicStudentStatus(button, status) {
   const otherButton = parentDiv.querySelector(`.attendance-btn:not([onclick*="'${status}'"])`);
 
   if (status === 'Present') {
-    // Present button - green
     button.className = 'attendance-btn present-btn active present';
-    button.innerHTML = '<i class="fas fa-check-circle"></i> Present';
-    button.style.background = '';
-    button.style.color = '';
-    button.style.border = '';
-
+    button.textContent = 'P';
     if (otherButton) {
       otherButton.className = 'attendance-btn';
-      otherButton.innerHTML = '<i class="fas fa-circle"></i> Not Applicable';
-      otherButton.style.background = '#f5f5f5';
-      otherButton.style.color = '#666';
-      otherButton.style.border = '';
+      otherButton.textContent = 'N';
     }
-
     episodicSelectedStatuses.set(studentId, 'Present');
     showFeedback(`✓ ${studentName} marked as Present`, "alert-success", "episodicAttendanceFeedback");
   } else {
-    // Not Applicable button - RED like Absent (uses CSS class)
     button.className = 'attendance-btn active not-applicable';
-    button.innerHTML = '<i class="fas fa-ban"></i> Not Applicable';
-    button.style.background = '';
-    button.style.color = '';
-    button.style.border = '';
-
+    button.textContent = 'N';
     if (otherButton) {
       otherButton.className = 'attendance-btn present-btn';
-      otherButton.innerHTML = '<i class="fas fa-circle"></i> Present';
-      otherButton.style.background = '';
-      otherButton.style.color = '';
-      otherButton.style.border = '';
+      otherButton.textContent = 'P';
     }
-
     episodicSelectedStatuses.set(studentId, 'Not Applicable');
     showFeedback(`⚠️ ${studentName} marked as Not Applicable`, "alert-danger", "episodicAttendanceFeedback");
   }
+
+  const item = button.closest(".member-item");
+  const ctrl = item ? item.querySelector(".student-hours-control") : null;
+  if (ctrl) setStudentHoursEnabled(ctrl, status === "Present");
 
   updateEpisodicCounters();
 }
@@ -3098,7 +3073,7 @@ function selectAllEpisodicPresent() {
 function markAllEpisodicNotApplicable() {
   const buttons = document.querySelectorAll("#episodicStudentList .attendance-btn");
   buttons.forEach(btn => {
-    if (btn.innerHTML.includes('Not Applicable')) {
+    if (btn.getAttribute("onclick")?.includes("'Not Applicable'")) {
       const studentId = btn.getAttribute("data-student-id");
       if (episodicSelectedStatuses.get(studentId) !== 'Not Applicable') {
         setEpisodicStudentStatus(btn, 'Not Applicable');
@@ -3170,7 +3145,13 @@ function submitEpisodicAttendance() {
   // Build status array for ALL students (Present AND Not Applicable)
   const studentStatuses = [];
   for (const [studentId, status] of episodicSelectedStatuses.entries()) {
-    studentStatuses.push({ studentId: studentId, status: status });
+    let hoursVal;
+    if (status === 'Present') {
+      const btn = document.querySelector(`#episodicStudentList .present-btn[data-student-id="${studentId}"]`);
+      const hoursInput = btn ? btn.closest('.member-item')?.querySelector('.student-hours-input') : null;
+      if (hoursInput) hoursVal = Number(hoursInput.value);
+    }
+    studentStatuses.push({ studentId: studentId, status: status, hours: hoursVal });
   }
   if (studentStatuses.length === 0) {
     showPopup("Error", "No students found for this class.");
