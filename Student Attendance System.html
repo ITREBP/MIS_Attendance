@@ -2031,7 +2031,7 @@
   border-top: 1px solid var(--gray-200);
 }
 .attn-page .attn-bottom .btn { margin: 0; padding: 9px 12px; font-size: 13px; }
-.attn-page .attn-bottom .btn-secondary { flex: 0 0 auto; width: 46px; padding: 9px 0; }
+.attn-page .attn-bottom .btn-secondary { flex: 0 0 auto; width: 46px; padding: 9px 0; background: var(--danger) !important; color: #fff !important; }
 .attn-page .attn-bottom .btn-primary { flex: 1; }
 
 /* Hours +/- step buttons (touch-friendly, one line) */
@@ -4564,8 +4564,8 @@ function validateAndMarkAttendance() {
   
   if (missingStudents.length > 0) return showPopup("Error", `Missing student data for IDs: ${missingStudents.join(', ')}`);
   if (!allSelected) return showPopup("Error", "⚠️ Please select attendance for all students before submitting.");
-  if (alreadyMarkedStudents.length > 0 && attendanceData.length === 0) {
-    return showPopup("Info", `ℹ️ Attendance for ${alreadyMarkedStudents.join(', ')} is already marked and unchanged.`);
+    if (alreadyMarkedStudents.length > 0 && attendanceData.length === 0) {
+    return showPopup("Info", "ℹ️ Attendance is already marked and unchanged.");
   }
   if (attendanceData.length === 0) return showPopup("Info", "ℹ️ No changes to submit.");
   
@@ -4642,8 +4642,8 @@ function validateAndMarkBarcodeAttendance() {
   
   if (missingStudents.length > 0) return showPopup("Error", `Missing student data for IDs: ${missingStudents.join(', ')}`);
   if (!allSelected) return showPopup("Error", "⚠️ Please select attendance for all students or mark remaining as absent.");
-  if (alreadyMarkedStudents.length > 0 && attendanceData.length === 0) {
-    return showPopup("Info", `ℹ️ Attendance for ${alreadyMarkedStudents.join(', ')} is already marked and unchanged.`);
+   if (alreadyMarkedStudents.length > 0 && attendanceData.length === 0) {
+    return showPopup("Info", "ℹ️ Attendance is already marked and unchanged.");
   }
   if (attendanceData.length === 0) return showPopup("Info", "ℹ️ No changes to submit.");
   
