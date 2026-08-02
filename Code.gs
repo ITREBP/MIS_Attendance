@@ -2208,7 +2208,22 @@ function getHoursStatus(date) {
 }
 
 // NEW: Update batch hours for existing attendance records
-function updateBatchHours(date, classSection, category, hours, username) {
+// ================= BATCH HOURS UPDATE LOG =================
+const BATCH_HOURS_LOG_SHEET = 'Batch_Hours_Log';
+const BATCH_HOURS_LOG_HEADERS = ['Date','Class_Section','Old_Hours','Old_Category','New_Hours','New_Category','UserID','REC_ID','Timestamp'];
+
+function getOrCreateBatchHoursLogSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(BATCH_HOURS_LOG_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(BATCH_HOURS_LOG_SHEET);
+    sheet.getRange(1, 1, 1, BATCH_HOURS_LOG_HEADERS.length).setValues([BATCH_HOURS_LOG_HEADERS]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function updateBatchHours(date, classSection, category, hours, username, recId = '') {
   const lock = LockService.getScriptLock();
   
   try {
@@ -2224,11 +2239,15 @@ function updateBatchHours(date, classSection, category, hours, username) {
     const targetDate = new Date(date).toLocaleDateString('en-CA');
     let updatedHoursSetup = false;
     const now = new Date().toLocaleString();
+    let oldHours = '';
+    let oldCategory = '';
     
     // Update or create entry in Daily_Hours_Setup
     for (let i = 1; i < hoursData.length; i++) {
       const rowDate = new Date(hoursData[i][0]).toLocaleDateString('en-CA');
       if (rowDate === targetDate && hoursData[i][1] === classSection) {
+        oldCategory = hoursData[i][2];
+        oldHours = hoursData[i][3];
         hoursSheet.getRange(i + 1, 3).setValue(category); // Category
         hoursSheet.getRange(i + 1, 4).setValue(hours);   // Hours
         hoursSheet.getRange(i + 1, 5).setValue(username); // Teacher ID
@@ -2270,6 +2289,11 @@ function updateBatchHours(date, classSection, category, hours, username) {
     }
     
     SpreadsheetApp.flush();
+    
+    // Log this batch hours update — sirf tab jab kam-az-kam 1 record actually update hua ho
+    if (updatedCount > 0) {
+      getOrCreateBatchHoursLogSheet_().appendRow([date, classSection, oldHours, oldCategory, hours, category, username, recId, new Date().toLocaleString()]);
+    }
     
     return {
       success: true,

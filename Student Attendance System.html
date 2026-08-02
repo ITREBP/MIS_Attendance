@@ -2557,7 +2557,7 @@
   </div>
   
   <div id="singleHoursSetupPopup" class="password-popup" style="display: none;"><h3><i class="fas fa-clock me-2"></i>Set Hours and Category</h3><p><strong id="setupClassSection"></strong> on <strong id="setupDate"></strong></p><form id="singleHoursForm"><div class="mb-3"><label class="form-label">Category</label><select id="setupCategory" class="form-control" required><option disabled selected>Loading...</option></select></div><div class="mb-3"><label class="form-label">Hours</label><select id="setupHours" class="form-control" required><option disabled selected>Loading...</option></select></div><div class="d-flex gap-2"><button type="button" class="btn btn-secondary" onclick="closeSingleHoursSetup()">Cancel</button><button type="submit" class="btn btn-primary">Save & Continue</button></div></form></div>
-  <div id="batchHoursUpdatePopup" class="password-popup" style="display: none;"><h3><i class="fas fa-clock me-2"></i>Batch Hours Update</h3><form id="batchHoursUpdateForm"><div class="mb-3"><label>Date</label><input type="date" class="form-control" id="batchUpdateDate" required></div><div class="mb-3"><label>Class Section</label><select class="form-control" id="batchUpdateClassSection" required></select></div><div class="mb-3"><label>New Hours</label><select class="form-control" id="batchUpdateHours" required></select></div><div class="mb-3"><label>New Category</label><select class="form-control" id="batchUpdateCategory" required></select></div><div class="d-flex gap-2"><button type="button" class="btn btn-secondary" onclick="closeBatchHoursUpdatePopup()">Cancel</button><button type="submit" class="btn btn-primary">Update Batch Hours</button></div></form></div>
+  <div id="batchHoursUpdatePopup" class="password-popup" style="display: none;"><h3><i class="fas fa-clock me-2"></i>Batch Hours Update</h3><form id="batchHoursUpdateForm"><div class="mb-3"><label>Date</label><input type="date" class="form-control" id="batchUpdateDate" required></div><div class="mb-3"><label>Class Section</label><select class="form-control" id="batchUpdateClassSection" required></select></div><div class="mb-3"><label>New Category</label><select class="form-control" id="batchUpdateHours" required></select></div><div class="mb-3"><label>New Hours</label><select class="form-control" id="batchUpdateCategory" required></select></div><div class="d-flex gap-2"><button type="button" class="btn btn-secondary" onclick="closeBatchHoursUpdatePopup()">Cancel</button><button type="submit" class="btn btn-primary">Update Batch Hours</button></div></form></div>
     <!-- CREATE EPISODIC EVENT POPUP -->
   <div id="episodicEventPopup" class="password-popup" style="display:none; width:460px; max-height:90vh; overflow-y:auto;">
     <h3><i class="fas fa-calendar-plus me-2"></i>Create Episodic Event</h3>
@@ -4147,18 +4147,21 @@ function showBatchHoursFromStatus() {
 
 function showBatchHoursUpdateForm() { 
   if (!userPermissions.canUpdateBatchHours) return showPopup("Error", "No permission"); 
-  populateCategoriesAndHours("batchUpdateHours", "batchUpdateCategory"); 
   document.getElementById("batchUpdateDate").value = getTodayDate(); 
   const classSelect = document.getElementById("batchUpdateClassSection"); 
   if (classSelect) { 
     classSelect.innerHTML = ""; 
     assignedClassSections.forEach(cs => classSelect.appendChild(new Option(cs, cs))); 
   } 
-  const popup = document.getElementById("batchHoursUpdatePopup"); 
-  if (popup) { 
-    popup.style.display = "block"; 
-    document.getElementById("modalBackdrop").classList.add("active"); 
-  } 
+  showLoading(true, "Loading categories & hours...");
+  populateCategoriesAndHours("batchUpdateHours", "batchUpdateCategory", () => {
+    showLoading(false);
+    const popup = document.getElementById("batchHoursUpdatePopup"); 
+    if (popup) { 
+      popup.style.display = "block"; 
+      document.getElementById("modalBackdrop").classList.add("active"); 
+    } 
+  });
   const form = document.getElementById("batchHoursUpdateForm"); 
   if (form) { 
     form.onsubmit = (e) => { 
@@ -4193,7 +4196,7 @@ function submitBatchHoursUpdate() {
       showLoading(false); 
       showPopup("Error", err.message); 
     })
-    .updateBatchHours(date, cls, hrs, cat, currentUser.username); 
+    .updateBatchHours(date, cls, hrs, cat, currentUser.username, currentUser.recId); 
 }
 
 // Submit batch hours form
