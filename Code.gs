@@ -418,6 +418,7 @@ function getUserSchedule(username) {
   const daysCol = headers.indexOf('AllowedDays');
   const startTimeCol = headers.indexOf('StartTime');
   const endTimeCol = headers.indexOf('EndTime');
+  const dayScheduleCol = headers.indexOf('DaySchedule');
 
   if (usernameCol === -1 || daysCol === -1 || startTimeCol === -1 || endTimeCol === -1) {
     throw new Error('Required columns not found in Users sheet');
@@ -428,7 +429,15 @@ function getUserSchedule(username) {
       const allowedDays = data[i][daysCol] ? data[i][daysCol].split(',').map(day => day.trim()) : [];
       const startTime = data[i][startTimeCol] || '';
       const endTime = data[i][endTimeCol] || '';
-      return { allowedDays, startTime, endTime };
+      let daySchedule = {};
+      if (dayScheduleCol !== -1 && data[i][dayScheduleCol]) {
+        try {
+          daySchedule = JSON.parse(data[i][dayScheduleCol]) || {};
+        } catch (e) {
+          daySchedule = {};
+        }
+      }
+      return { allowedDays, startTime, endTime, daySchedule };
     }
   }
   throw new Error('No schedule assigned for this user');
@@ -444,12 +453,16 @@ function isWithinSchedule(username) {
     throw new Error(`Attendance marking not allowed on ${currentDay}. Allowed days: ${schedule.allowedDays.join(', ')}`);
   }
 
-  if (!schedule.startTime || !schedule.endTime) {
+  const dayOverride = schedule.daySchedule && schedule.daySchedule[currentDay];
+  const effectiveStart = (dayOverride && dayOverride.start && dayOverride.end) ? dayOverride.start : schedule.startTime;
+  const effectiveEnd = (dayOverride && dayOverride.start && dayOverride.end) ? dayOverride.end : schedule.endTime;
+
+  if (!effectiveStart || !effectiveEnd) {
     throw new Error('Start or end time not defined for this user');
   }
 
-  const [startHour, startMinute] = schedule.startTime.split(':').map(Number);
-  const [endHour, endMinute] = schedule.endTime.split(':').map(Number);
+  const [startHour, startMinute] = effectiveStart.split(':').map(Number);
+  const [endHour, endMinute] = effectiveEnd.split(':').map(Number);
   const [currentHour, currentMinute] = currentTime.split(':').map(Number);
 
   const startTimeInMinutes = startHour * 60 + startMinute;
@@ -457,7 +470,7 @@ function isWithinSchedule(username) {
   const currentTimeInMinutes = currentHour * 60 + currentMinute;
 
   if (currentTimeInMinutes < startTimeInMinutes || currentTimeInMinutes > endTimeInMinutes) {
-    throw new Error(`Attendance marking only allowed between ${schedule.startTime} and ${schedule.endTime}`);
+    throw new Error(`Attendance marking only allowed between ${effectiveStart} and ${effectiveEnd}`);
   }
 
   return true;

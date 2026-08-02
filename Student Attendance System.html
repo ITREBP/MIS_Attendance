@@ -3913,13 +3913,16 @@ function isWithinScheduleClientSide() {
       time = now.toLocaleString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Karachi" }); 
   if (!sched.allowedDays?.includes(day)) 
     throw new Error(`Not allowed on ${day}. Allowed: ${sched.allowedDays?.join(", ")}`); 
-  if (sched.startTime && sched.endTime) { 
-    let [sh, sm] = sched.startTime.split(":").map(Number),
-        [eh, em] = sched.endTime.split(":").map(Number),
+  const dayOverride = sched.daySchedule && sched.daySchedule[day];
+  const effStart = (dayOverride && dayOverride.start && dayOverride.end) ? dayOverride.start : sched.startTime;
+  const effEnd = (dayOverride && dayOverride.start && dayOverride.end) ? dayOverride.end : sched.endTime;
+  if (effStart && effEnd) { 
+    let [sh, sm] = effStart.split(":").map(Number),
+        [eh, em] = effEnd.split(":").map(Number),
         [ch, cm] = time.split(":").map(Number); 
     let cur = ch * 60 + cm, start = sh * 60 + sm, end = eh * 60 + em; 
     if (cur < start || cur > end) 
-      throw new Error(`Only allowed between ${sched.startTime} and ${sched.endTime}`); 
+      throw new Error(`Only allowed between ${effStart} and ${effEnd}`); 
   } 
   return true; 
 }
