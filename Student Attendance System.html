@@ -1551,6 +1551,46 @@
 
 /* ========== REPORT SECTION STYLES (from old code) ========== */
 
+
+/* Report type dropdown styling */
+#reportTypeSelect {
+  border-radius: 12px;
+  border: 1px solid #e0e0e0;
+  padding: 10px 15px;
+  transition: all 0.3s;
+  width: 100%;
+  background: var(--card-bg);
+  color: var(--gray-900);
+}
+
+#reportTypeSelect:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.2);
+  outline: none;
+}
+
+#reportTypeHelp {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--gray-700);
+}
+
+[data-theme="dark"] #reportTypeSelect {
+  background: rgba(15, 23, 42, 0.8);
+  border-color: #334155;
+  color: var(--gray-900);
+}
+
+[data-theme="dark"] #reportTypeSelect:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+}
+
+[data-theme="dark"] #reportTypeHelp {
+  color: #94a3b8;
+}
+
 /* Dashboard card styles */
 .dashboard-card {
     background: #ffffff;
@@ -2265,46 +2305,56 @@
     
     <div class="row">
       <!-- Daily Attendance Report -->
-      <div class="col-md-6 mb-4">
-        <div class="dashboard-card">
-          <h4><i class="fas fa-calendar-day me-2"></i>Daily Attendance Report</h4>
-          <p class="text-muted">Download attendance for a specific date and class</p>
-          
-          <form id="dailyReportForm">
-            <div class="mb-3">
-              <label for="reportDate" class="form-label">Date</label>
-              <input type="date" class="form-control" id="reportDate" required>
-            </div>
-            
-            <div class="mb-3">
-              <label for="reportClassSection" class="form-label">Class Section</label>
-              <select class="form-select" id="reportClassSection" required>
-                <option value="" disabled selected>Select Class Section</option>
-              </select>
-            </div>
-            
-            <div class="mb-3">
-              <label class="form-label">Format</label>
-              <div class="form-check">
-                <input class="form-check-input" type="radio" name="dailyFormat" id="dailyPNG" value="png" checked>
-                <label class="form-check-label" for="dailyPNG">
-                  <i class="fas fa-file-image me-1 text-primary"></i> PNG (High Quality)
-                </label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="radio" name="dailyFormat" id="dailyCSV" value="csv">
-                <label class="form-check-label" for="dailyCSV">
-                  <i class="fas fa-file-csv me-1 text-success"></i> CSV
-                </label>
-              </div>
-            </div>
-            
-            <button type="submit" class="btn btn-primary w-100">
-              <i class="fas fa-download me-2"></i>Download Report
-            </button>
-          </form>
+<div class="col-md-6 mb-4">
+  <div class="dashboard-card">
+    <h4><i class="fas fa-calendar-day me-2"></i>Daily Attendance Report</h4>
+    <p class="text-muted">Download attendance for a specific date and class</p>
+    
+    <form id="dailyReportForm">
+      <div class="mb-3">
+        <label for="reportDate" class="form-label">Date <span class="text-danger">*</span></label>
+        <input type="date" class="form-control" id="reportDate" required>
+      </div>
+      
+      <div class="mb-3">
+        <label for="reportClassSection" class="form-label">Class Section <span class="text-danger">*</span></label>
+        <select class="form-select" id="reportClassSection" required>
+          <option value="" disabled selected>Select Class Section</option>
+        </select>
+      </div>
+      
+      <!-- Report Type Dropdown with placeholder -->
+      <div class="mb-3">
+        <label for="reportTypeSelect" class="form-label">Report Type <span class="text-danger">*</span></label>
+        <select class="form-select" id="reportTypeSelect" required>
+          <option value="" disabled selected>Select Report Type</option>
+          <option value="normal">Normal Attendance</option>
+          <option value="episodic">Episodic Attendance</option>
+        </select>
+      </div>
+      
+      <div class="mb-3">
+        <label class="form-label">Format <span class="text-danger">*</span></label>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="dailyFormat" id="dailyPNG" value="png" checked>
+          <label class="form-check-label" for="dailyPNG">
+            <i class="fas fa-file-image me-1 text-primary"></i> PNG (High Quality)
+          </label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="dailyFormat" id="dailyCSV" value="csv">
+          <label class="form-check-label" for="dailyCSV">
+            <i class="fas fa-file-csv me-1 text-success"></i> CSV
+          </label>
         </div>
       </div>
+      
+      <button type="submit" class="btn btn-primary w-100">
+        <i class="fas fa-download me-2"></i>Download Report
+      </button>
+    </form>
+  </div>
+</div>
       
       <!-- Monthly Summary Report -->
       <div class="col-md-6 mb-4">
@@ -2724,6 +2774,55 @@ function showEpisodicAttendanceForm() {
     showLoading(false);
     handleNavigation("episodicAttendancePage");
   });
+}
+
+function generateEpisodicAttendanceReport(date, classSection) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var episodicSheet = ss.getSheetByName("Episodic_Attendance");
+    
+    if (!episodicSheet) {
+      throw new Error("Episodic_Attendance sheet not found");
+    }
+    
+    var data = episodicSheet.getDataRange().getValues();
+    var headers = data[0];
+    
+    // Find column indices
+    var dateCol = headers.indexOf("Date");
+    var classCol = headers.indexOf("Class_Section");
+    var studentNameCol = headers.indexOf("Student_Name");
+    var studentIdCol = headers.indexOf("Std_ID");
+    var statusCol = headers.indexOf("Status");
+    var eventNameCol = headers.indexOf("Event_Name");
+    var categoryCol = headers.indexOf("Category");
+    var hoursCol = headers.indexOf("Hours");
+    var studentClassCol = headers.indexOf("Student_Class");
+    var studentSectionCol = headers.indexOf("Student_Section");
+    
+    var results = [];
+    
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      if (row[dateCol] == date && row[classCol] == classSection) {
+        results.push({
+          studentName: row[studentNameCol] || '',
+          studentId: row[studentIdCol] || '',
+          className: row[studentClassCol] || '',
+          section: row[studentSectionCol] || '',
+          date: row[dateCol] || '',
+          eventName: row[eventNameCol] || '',
+          category: row[categoryCol] || '',
+          hours: row[hoursCol] || '',
+          status: row[statusCol] || ''
+        });
+      }
+    }
+    
+    return results;
+  } catch (e) {
+    throw new Error("Error generating episodic report: " + e.message);
+  }
 }
 
 // Date dropdown: today + allowed previous dates, ascending (no future, no password)
@@ -5598,6 +5697,16 @@ function populateReportClassSections() {
   sectionsToShow.forEach(cs => {
     select.appendChild(new Option(cs, cs));
   });
+  
+  // Populate the report type dropdown with placeholder
+  const typeSelect = document.getElementById('reportTypeSelect');
+  if (typeSelect) {
+    typeSelect.innerHTML = `
+      <option value="" disabled selected>Select Report Type</option>
+      <option value="normal">Normal Attendance</option>
+      <option value="episodic">Episodic Attendance</option>
+    `;
+  }
 }
 
 function populateMonthlyReportClassSections() {
@@ -5754,6 +5863,15 @@ function setupReportForms() {
   if (dailyForm) {
     dailyForm.onsubmit = function(e) {
       e.preventDefault();
+      
+      // Additional validation before generating report
+      const reportType = document.getElementById('reportTypeSelect').value;
+      if (!reportType) {
+        showPopup('Error', 'Please select a report type (Normal or Episodic).', 'error');
+        document.getElementById('reportTypeSelect').focus();
+        return;
+      }
+      
       generateDailyReport();
     };
   }
@@ -5770,48 +5888,72 @@ function setupReportForms() {
 function generateDailyReport() {
   const date = document.getElementById('reportDate').value;
   const classSection = document.getElementById('reportClassSection').value;
+  const reportType = document.getElementById('reportTypeSelect').value;
   const format = document.querySelector('input[name="dailyFormat"]:checked')?.value || 'csv';
   
-  if (!date || !classSection) {
-    showPopup('Error', 'Please select date and class section.', 'error');
+  // Validate all fields
+  if (!date) {
+    showPopup('Error', 'Please select a date.', 'error');
+    document.getElementById('reportDate').focus();
     return;
   }
   
-  showLoading(true, `Generating report...`);
+  if (!classSection) {
+    showPopup('Error', 'Please select a class section.', 'error');
+    document.getElementById('reportClassSection').focus();
+    return;
+  }
+  
+  if (!reportType) {
+    showPopup('Error', 'Please select a report type (Normal or Episodic).', 'error');
+    document.getElementById('reportTypeSelect').focus();
+    return;
+  }
+  
+  showLoading(true, `Generating ${reportType} report...`);
+  
+  // Use different backend function based on report type
+  const backendFunction = reportType === 'episodic' 
+    ? 'generateEpisodicAttendanceReport' 
+    : 'generateStudentAttendanceReport';
   
   google.script.run
     .withSuccessHandler(reportData => {
       showLoading(false);
       
       if (!reportData || reportData.length === 0) {
-        showPopup('Info', 'No attendance data found.', 'info');
+        showPopup('Info', `No ${reportType} attendance data found for the selected criteria.`, 'info');
         return;
       }
       
       const formattedData = reportData.map(row => ({
-        'Student Name': row.studentName,
-        'Student ID': row.studentId,
-        'Class': row.className,
-        'Section': row.section,
+        'Student Name': row.studentName || row.Student_Name,
+        'Student ID': row.studentId || row.Std_ID,
+        'Class': row.className || row.Student_Class,
+        'Section': row.section || row.Student_Section,
         'Date': row.date,
+        'Event': row.eventName || (reportType === 'episodic' ? row.Event_Name || 'N/A' : 'N/A'),
+        'Category': row.category || (reportType === 'episodic' ? row.Category || 'N/A' : 'N/A'),
+        'Hours': row.hours || row.Hours || 'N/A',
         'Status': row.status
       }));
       
-      const filename = `attendance_${classSection.replace(/\s+/g, '_')}_${date}`;
+      const typeLabel = reportType === 'episodic' ? 'Episodic' : 'Normal';
+      const filename = `${typeLabel}_attendance_${classSection.replace(/\s+/g, '_')}_${date}`;
       
       if (format === 'csv') {
         downloadCSV(formattedData, `${filename}.csv`);
       } else {
-        generatePNGReport(formattedData, filename, 'Daily Attendance Report');
+        generatePNGReport(formattedData, filename, `${typeLabel} Attendance Report`);
       }
       
-      addToDownloadHistory(`Attendance - ${classSection} - ${date}`, format.toUpperCase());
+      addToDownloadHistory(`${typeLabel} Attendance - ${classSection} - ${date}`, format.toUpperCase());
     })
     .withFailureHandler(error => {
       showLoading(false);
       showPopup('Error', `Failed to generate report: ${error.message}`, 'error');
     })
-    .generateStudentAttendanceReport(date, classSection);
+    [backendFunction](date, classSection);
 }
 
 function generateMonthlyReport() {
