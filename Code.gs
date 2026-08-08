@@ -940,8 +940,11 @@ function generateUUID() {
 function markAttendance(attendanceData, class_section, date, username, isBarcode = false, recId = '') {
    const startTime = Date.now();
 
-// ✅ ADD THIS LINE - SERVER-SIDE SCHEDULE CHECK
-  isWithinSchedule(username); // Will throw error if outside allowed time
+// ✅ SERVER-SIDE SCHEDULE CHECK for Current Date Only
+  const todayStr_ = Utilities.formatDate(new Date(), 'Asia/Karachi', 'yyyy-MM-dd');
+  if (new Date(date).toLocaleDateString('en-CA') === todayStr_) {
+    isWithinSchedule(username); // Will throw error if outside allowed time
+  }
 
   Logger.log(`Starting markAttendance with date: ${date}, classSection: ${class_section}, isBarcode: ${isBarcode}, records: ${attendanceData.length}`);
 
@@ -1445,10 +1448,8 @@ function markEpisodicAttendance(studentStatuses, classSection, date, username, e
     Logger.log(`Using ACTIVE term: ${term.termName} (${term.termId}) from ${term.startDate} to ${term.endDate}`);
     
     // ========================================================
-    // 3. SCHEDULE CHECK - Server-side schedule validation
     // ========================================================
-    isWithinSchedule(username);
-    Logger.log(`Schedule check passed for user: ${username}`);
+    Logger.log(`Schedule check skipped for episodic attendance: ${username}`);
     
     // ========================================================
     // 4. HOURS VALIDATION - Check that hours & category are defined for the day
