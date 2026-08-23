@@ -937,7 +937,7 @@ function generateUUID() {
   return Utilities.getUuid();
 }
 
-function markAttendance(attendanceData, class_section, date, username, isBarcode = false, recId = '') {
+function markAttendance(attendanceData, class_section, date, username, isBarcode = false, recId = '', category = '', hours = '') {
    const startTime = Date.now();
 
 // ✅ SERVER-SIDE SCHEDULE CHECK for Current Date Only
@@ -950,60 +950,30 @@ function markAttendance(attendanceData, class_section, date, username, isBarcode
 
   try {
     // ========================================================
-    // TERM VALIDATION - Check if class has active term
-    // Checks both Class_Terms.Is_Active AND Terms.Is_Active
+    // TERM CHECK REMOVED (per request) - term info still fetched (non-blocking) for record-keeping only
     // ========================================================
     const term = getTermForClassSection(class_section, date);
-
-    if (!term) {
-      // First check Class_Terms
-      const classTermsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Class_Terms');
-      if (classTermsSheet) {
-        const data = classTermsSheet.getDataRange().getValues();
-        const headers = data[0];
-        const classCol = headers.indexOf('Class_Section');
-        const activeCol = headers.indexOf('Is_Active');
-        
-        for (let i = 1; i < data.length; i++) {
-          if (data[i][classCol] === class_section) {
-            const isActiveInClassTerms = data[i][activeCol] === true || data[i][activeCol] === 'TRUE';
-            
-            if (!isActiveInClassTerms) {
-              throw new Error(`Class ${class_section} is INACTIVE in Class_Terms sheet.`);
-            }
-            
-            // If class is active in Class_Terms but term not found, check Terms sheet
-            const termId = data[i][headers.indexOf('Term_ID')];
-            const termDetails = getTermDetails(termId);
-            
-            if (termDetails && !termDetails.isActive) {
-              throw new Error(`Term "${termDetails.termName}" is INACTIVE in Terms sheet. Contact administrator.`);
-            }
-            
-            break;
-          }
-        }
-      }
-      
-      throw new Error(`No active term found for ${class_section} on ${date}.`);
+    if (term) {
+      Logger.log(`Using term: ${term.termName} (${term.termId}) from ${term.startDate} to ${term.endDate}`);
+    } else {
+      Logger.log(`No active term found for ${class_section} on ${date} - proceeding anyway (term check disabled).`);
     }
-
-    // Double-check term is active (should already be checked, but just in case)
-    if (!term.isActive) {
-      throw new Error(`Cannot mark attendance for ${class_section}. Term "${term.termName}" is INACTIVE.`);
-    }
-
-    Logger.log(`Using ACTIVE term: ${term.termName} (${term.termId}) from ${term.startDate} to ${term.endDate}`);
     // ========================================================
     
     // -------------------------------------------------
     // NEW: Check that hours & category are defined for the day
     // -------------------------------------------------
-const hoursCheck = checkDailyHours(date, class_section, 'normal');
+let hoursCheck = checkDailyHours(date, class_section, 'normal');
 console.log('Hours check result:', hoursCheck);  // Add this for debugging
 
     if (!hoursCheck.exists) {
-      throw new Error('Hours and category must be set before marking attendance.');
+      // Daily_Hours_Setup mein abhi tak entry nahi thi - client se chuni gayi category/hours se
+      // abhi (attendance save hote waqt) entry banao, popup-continue ke waqt nahi.
+      if (!category || !hours) {
+        throw new Error('Hours and category must be set before marking attendance.');
+      }
+      setDailyHours([{ date, classSection: class_section, category, hours, teacherId: username }], 'normal', recId);
+      hoursCheck = { exists: true, category, hours };
     }
 
     // -------------------------------------------------
@@ -1159,7 +1129,7 @@ Logger.log(`Found ${existingRecordsByStudentDate.size} existing NORMAL records f
                 // ========================================================
                 // NEW: Add Term information if columns exist
                 // ========================================================
-                if (termIdCol !== undefined && termNameCol !== undefined) {
+                if (termIdCol !== undefined && termNameCol !== undefined && term) {
                   updatedRow[termIdCol] = term.termId;
                   updatedRow[termNameCol] = term.termName;
                   Logger.log(`Added term info to UPDATE: ${term.termId} - ${term.termName}`);
@@ -1205,7 +1175,7 @@ if (attendanceTypeCol !== undefined) {
               // ========================================================
               // NEW: Add Term information if columns exist
               // ========================================================
-              if (termIdCol !== undefined && termNameCol !== undefined) {
+              if (termIdCol !== undefined && termNameCol !== undefined && term) {
                 newRow[termIdCol] = term.termId;
                 newRow[termNameCol] = term.termName;
                 Logger.log(`Added term info to NEW row: ${term.termId} - ${term.termName}`);
@@ -1403,49 +1373,14 @@ function markEpisodicAttendance(studentStatuses, classSection, date, username, e
     }
     
     // ========================================================
-    // 2. TERM VALIDATION - Check if class has active term
-    // Checks both Class_Terms.Is_Active AND Terms.Is_Active
+    // 2. TERM CHECK REMOVED (per request) - term info still fetched (non-blocking) for record-keeping only
     // ========================================================
     const term = getTermForClassSection(classSection, date);
-    if (!term) {
-      // First check Class_Terms for more detailed error
-      const classTermsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Class_Terms');
-      if (classTermsSheet) {
-        const data = classTermsSheet.getDataRange().getValues();
-        const headers = data[0];
-        const classCol = headers.indexOf('Class_Section');
-        const activeCol = headers.indexOf('Is_Active');
-        
-        for (let i = 1; i < data.length; i++) {
-          if (data[i][classCol] === classSection) {
-            const isActiveInClassTerms = data[i][activeCol] === true || data[i][activeCol] === 'TRUE';
-            
-            if (!isActiveInClassTerms) {
-              throw new Error(`Class ${classSection} is INACTIVE in Class_Terms sheet. Cannot mark episodic attendance.`);
-            }
-            
-            // If class is active in Class_Terms but term not found, check Terms sheet
-            const termId = data[i][headers.indexOf('Term_ID')];
-            const termDetails = getTermDetails(termId);
-            
-            if (termDetails && !termDetails.isActive) {
-              throw new Error(`Term "${termDetails.termName}" is INACTIVE in Terms sheet. Contact administrator.`);
-            }
-            
-            break;
-          }
-        }
-      }
-      
-      throw new Error(`No active term found for ${classSection} on ${date}. Cannot mark episodic attendance.`);
+    if (term) {
+      Logger.log(`Using term: ${term.termName} (${term.termId}) from ${term.startDate} to ${term.endDate}`);
+    } else {
+      Logger.log(`No active term found for ${classSection} on ${date} - proceeding anyway (term check disabled).`);
     }
-
-    // Double-check term is active
-    if (!term.isActive) {
-      throw new Error(`Cannot mark episodic attendance for ${classSection}. Term "${term.termName}" is INACTIVE.`);
-    }
-
-    Logger.log(`Using ACTIVE term: ${term.termName} (${term.termId}) from ${term.startDate} to ${term.endDate}`);
     
     // ========================================================
     // ========================================================
@@ -1595,7 +1530,7 @@ updatedRow[categoryCol] = finalCategory;
           if (recIdCol !== undefined) updatedRow[recIdCol] = recId;
 
           // Ensure term info is correct
-          if (termIdCol !== undefined && termNameCol !== undefined) {
+          if (termIdCol !== undefined && termNameCol !== undefined && term) {
             updatedRow[termIdCol] = term.termId;
             updatedRow[termNameCol] = term.termName;
           }
@@ -1633,7 +1568,7 @@ newRow[categoryCol] = finalCategory;
         if (recIdCol !== undefined) newRow[recIdCol] = recId;
         if (typeCol !== undefined) newRow[typeCol] = 'Episodic';
         if (eventCol !== undefined) newRow[eventCol] = eventName;
-        if (termIdCol !== undefined && termNameCol !== undefined) {
+        if (termIdCol !== undefined && termNameCol !== undefined && term) {
           newRow[termIdCol] = term.termId;
           newRow[termNameCol] = term.termName;
         }
