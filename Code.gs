@@ -418,6 +418,7 @@ function getUserSchedule(username) {
   const daysCol = headers.indexOf('AllowedDays');
   const startTimeCol = headers.indexOf('StartTime');
   const endTimeCol = headers.indexOf('EndTime');
+  const dayScheduleCol = headers.indexOf('DaySchedule');
 
   if (usernameCol === -1 || daysCol === -1 || startTimeCol === -1 || endTimeCol === -1) {
     throw new Error('Required columns not found in Users sheet');
@@ -428,7 +429,15 @@ function getUserSchedule(username) {
       const allowedDays = data[i][daysCol] ? data[i][daysCol].split(',').map(day => day.trim()) : [];
       const startTime = data[i][startTimeCol] || '';
       const endTime = data[i][endTimeCol] || '';
-      return { allowedDays, startTime, endTime };
+      let daySchedule = {};
+      if (dayScheduleCol !== -1 && data[i][dayScheduleCol]) {
+        try {
+          daySchedule = JSON.parse(data[i][dayScheduleCol]) || {};
+        } catch (e) {
+          daySchedule = {};
+        }
+      }
+      return { allowedDays, startTime, endTime, daySchedule };
     }
   }
   throw new Error('No schedule assigned for this user');
@@ -444,12 +453,16 @@ function isWithinSchedule(username) {
     throw new Error(`Attendance marking not allowed on ${currentDay}. Allowed days: ${schedule.allowedDays.join(', ')}`);
   }
 
-  if (!schedule.startTime || !schedule.endTime) {
+  const dayOverride = schedule.daySchedule && schedule.daySchedule[currentDay];
+  const effectiveStart = (dayOverride && dayOverride.start && dayOverride.end) ? dayOverride.start : schedule.startTime;
+  const effectiveEnd = (dayOverride && dayOverride.start && dayOverride.end) ? dayOverride.end : schedule.endTime;
+
+  if (!effectiveStart || !effectiveEnd) {
     throw new Error('Start or end time not defined for this user');
   }
 
-  const [startHour, startMinute] = schedule.startTime.split(':').map(Number);
-  const [endHour, endMinute] = schedule.endTime.split(':').map(Number);
+  const [startHour, startMinute] = effectiveStart.split(':').map(Number);
+  const [endHour, endMinute] = effectiveEnd.split(':').map(Number);
   const [currentHour, currentMinute] = currentTime.split(':').map(Number);
 
   const startTimeInMinutes = startHour * 60 + startMinute;
@@ -457,7 +470,7 @@ function isWithinSchedule(username) {
   const currentTimeInMinutes = currentHour * 60 + currentMinute;
 
   if (currentTimeInMinutes < startTimeInMinutes || currentTimeInMinutes > endTimeInMinutes) {
-    throw new Error(`Attendance marking only allowed between ${schedule.startTime} and ${schedule.endTime}`);
+    throw new Error(`Attendance marking only allowed between ${effectiveStart} and ${effectiveEnd}`);
   }
 
   return true;
@@ -839,14 +852,15 @@ function getEpisodicStudentList(classSection, date, eventName) {
           studentStatus === 'active' &&
           shouldIncludeByDate) {
         
-        studentsMap.set(String(studentData[i][stdIdCol]), {
+          studentsMap.set(String(studentData[i][stdIdCol]), {
           Std_ID: String(studentData[i][stdIdCol]),
           Barcode_ID: studentData[i][barcodeIdCol],
           Student_Name: studentData[i][nameCol],
           Student_Class: studentData[i][classCol],
           Student_Section: studentData[i][sectionCol],
           Date_of_Joining: dateOfJoining ? dateOfJoining.toLocaleDateString('en-CA') : null,
-          attendanceStatus: 'Not Applicable'  // Default for episodic
+          attendanceStatus: 'Not Applicable',  // Default for episodic
+          Hours: null
         });
       }
     }
@@ -865,16 +879,17 @@ function getEpisodicStudentList(classSection, date, eventName) {
     const headers = attendanceData[0];
     
     // Find column indices
-    const stdIdColAtt = headers.indexOf('Std_ID');
+        const stdIdColAtt = headers.indexOf('Std_ID');
     const dateColAtt = headers.indexOf('Date');
     const classColAtt = headers.indexOf('Class_Section');
     const typeColAtt = headers.indexOf('Attendance_Type');
     const eventColAtt = headers.indexOf('Event_Name');
     const statusColAtt = headers.indexOf('Status');
+    const hoursColAtt = headers.indexOf('Hours');
     
     const targetDateStr = new Date(date).toLocaleDateString('en-CA');
     
-    // Create a map of studentId -> status ONLY for EPISODIC records
+    // Create a map of studentId -> {status, hours} ONLY for EPISODIC records
     const episodicStatusMap = new Map();
     
     for (let i = 1; i < attendanceData.length; i++) {
@@ -890,7 +905,7 @@ function getEpisodicStudentList(classSection, date, eventName) {
           rowEvent === eventName &&
           rowClass === classSection) {
         const studentId = String(row[stdIdColAtt]);
-        episodicStatusMap.set(studentId, row[statusColAtt]);
+        episodicStatusMap.set(studentId, { status: row[statusColAtt], hours: hoursColAtt !== -1 ? row[hoursColAtt] : null });
         Logger.log(`Found EPISODIC record: Student ${studentId} → ${row[statusColAtt]}`);
       }
     }
@@ -899,7 +914,9 @@ function getEpisodicStudentList(classSection, date, eventName) {
     for (const student of studentsMap.values()) {
       const studentId = String(student.Std_ID);
       if (episodicStatusMap.has(studentId)) {
-        student.attendanceStatus = episodicStatusMap.get(studentId);
+        const rec = episodicStatusMap.get(studentId);
+        student.attendanceStatus = rec.status;
+        student.Hours = (rec.hours === '' || rec.hours === null || rec.hours === undefined) ? null : rec.hours;
         Logger.log(`Student ${studentId} has episodic status: ${student.attendanceStatus}`);
       } else {
         // No episodic record found - default to 'Not Applicable'
@@ -923,8 +940,11 @@ function generateUUID() {
 function markAttendance(attendanceData, class_section, date, username, isBarcode = false, recId = '') {
    const startTime = Date.now();
 
-// ✅ ADD THIS LINE - SERVER-SIDE SCHEDULE CHECK
-  isWithinSchedule(username); // Will throw error if outside allowed time
+// ✅ SERVER-SIDE SCHEDULE CHECK for Current Date Only
+  const todayStr_ = Utilities.formatDate(new Date(), 'Asia/Karachi', 'yyyy-MM-dd');
+  if (new Date(date).toLocaleDateString('en-CA') === todayStr_) {
+    isWithinSchedule(username); // Will throw error if outside allowed time
+  }
 
   Logger.log(`Starting markAttendance with date: ${date}, classSection: ${class_section}, isBarcode: ${isBarcode}, records: ${attendanceData.length}`);
 
@@ -1428,10 +1448,8 @@ function markEpisodicAttendance(studentStatuses, classSection, date, username, e
     Logger.log(`Using ACTIVE term: ${term.termName} (${term.termId}) from ${term.startDate} to ${term.endDate}`);
     
     // ========================================================
-    // 3. SCHEDULE CHECK - Server-side schedule validation
     // ========================================================
-    isWithinSchedule(username);
-    Logger.log(`Schedule check passed for user: ${username}`);
+    Logger.log(`Schedule check skipped for episodic attendance: ${username}`);
     
     // ========================================================
     // 4. HOURS VALIDATION - Check that hours & category are defined for the day
@@ -1557,20 +1575,22 @@ if (hoursCheck.exists) {
         continue;
       }
       
-      const existing = existingRecords.get(studentId);
+            const existing = existingRecords.get(studentId);
       const now = new Date();
+      const desiredHours = (newStatus === 'Present' && item.hours !== undefined && item.hours !== '' && item.hours !== null) ? item.hours : finalHours;
       
       if (existing) {
-        // Update existing record if status changed
-        if (existing.currentStatus !== newStatus) {
+        // Update existing record if status OR hours changed
+        const hoursDiff = String(existing.rowData[hoursCol]) !== String(desiredHours);
+        if (existing.currentStatus !== newStatus || hoursDiff) {
           // Create updated row data based on existing row
           const updatedRow = [...existing.rowData];
           updatedRow[statusCol] = newStatus;
           updatedRow[timestampCol] = now.toLocaleString();
           updatedRow[teacherCol] = username;
           
-          // Ensure hours and category are from Daily_Hours_Setup (not custom if provided)
- updatedRow[hoursCol] = finalHours;
+          // Hours: per-student value when Present (if provided), else event's default hours
+ updatedRow[hoursCol] = desiredHours;
 updatedRow[categoryCol] = finalCategory;
           if (recIdCol !== undefined) updatedRow[recIdCol] = recId;
 
@@ -1607,8 +1627,8 @@ updatedRow[categoryCol] = finalCategory;
         newRow[teacherCol] = username;
         newRow[classCol] = classSection;
         
-        // Use hours from Daily_Hours_Setup validation (not the passed hours parameter)
-        newRow[hoursCol] = finalHours;
+                // Hours: per-student value when Present (if provided), else event's default hours
+        newRow[hoursCol] = desiredHours;
 newRow[categoryCol] = finalCategory;
         if (recIdCol !== undefined) newRow[recIdCol] = recId;
         if (typeCol !== undefined) newRow[typeCol] = 'Episodic';
@@ -2189,7 +2209,22 @@ function getHoursStatus(date) {
 }
 
 // NEW: Update batch hours for existing attendance records
-function updateBatchHours(date, classSection, category, hours, username) {
+// ================= BATCH HOURS UPDATE LOG =================
+const BATCH_HOURS_LOG_SHEET = 'Batch_Hours_Log';
+const BATCH_HOURS_LOG_HEADERS = ['Date','Class_Section','Old_Hours','Old_Category','New_Hours','New_Category','UserID','REC_ID','Timestamp'];
+
+function getOrCreateBatchHoursLogSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(BATCH_HOURS_LOG_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(BATCH_HOURS_LOG_SHEET);
+    sheet.getRange(1, 1, 1, BATCH_HOURS_LOG_HEADERS.length).setValues([BATCH_HOURS_LOG_HEADERS]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function updateBatchHours(date, classSection, category, hours, username, recId = '') {
   const lock = LockService.getScriptLock();
   
   try {
@@ -2205,11 +2240,15 @@ function updateBatchHours(date, classSection, category, hours, username) {
     const targetDate = new Date(date).toLocaleDateString('en-CA');
     let updatedHoursSetup = false;
     const now = new Date().toLocaleString();
+    let oldHours = '';
+    let oldCategory = '';
     
     // Update or create entry in Daily_Hours_Setup
     for (let i = 1; i < hoursData.length; i++) {
       const rowDate = new Date(hoursData[i][0]).toLocaleDateString('en-CA');
       if (rowDate === targetDate && hoursData[i][1] === classSection) {
+        oldCategory = hoursData[i][2];
+        oldHours = hoursData[i][3];
         hoursSheet.getRange(i + 1, 3).setValue(category); // Category
         hoursSheet.getRange(i + 1, 4).setValue(hours);   // Hours
         hoursSheet.getRange(i + 1, 5).setValue(username); // Teacher ID
@@ -2251,6 +2290,11 @@ function updateBatchHours(date, classSection, category, hours, username) {
     }
     
     SpreadsheetApp.flush();
+    
+    // Log this batch hours update — sirf tab jab kam-az-kam 1 record actually update hua ho
+    if (updatedCount > 0) {
+      getOrCreateBatchHoursLogSheet_().appendRow([date, classSection, oldHours, oldCategory, hours, category, username, recId, new Date().toLocaleString()]);
+    }
     
     return {
       success: true,
