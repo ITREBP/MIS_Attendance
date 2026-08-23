@@ -2047,6 +2047,16 @@
 .hours-step:active { background: var(--gray-200); }
 .hours-step:disabled { opacity: .5; }
 
+/* Number input ke native spinner arrows chhupao (warna digits clip ho jate hain) */
+.student-hours-input::-webkit-outer-spin-button,
+.student-hours-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.student-hours-input {
+  -moz-appearance: textfield;
+}
+
 /* Compact rows */
 .attn-page .member-item {
   flex-direction: row; align-items: center; flex-wrap: nowrap;
