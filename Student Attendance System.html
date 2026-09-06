@@ -5496,19 +5496,21 @@ function setupBarcodeMessageListener() {
 }
 
 function handleBarcodeMessage(event) { 
+  // NEW: page ke hisab se sahi prefix chunein
+  const isPrevPage = getCurrentVisiblePage() === "previousBarcodeAttendanceContainer";
+  const prefix = isPrevPage ? "prevBarcodeAttendanceSelect_" : "barcodeAttendanceSelect_";
+
   if (event.data?.type === "REQUEST_STUDENT_DATA") { 
-    // Get current UI selection state for each student
     const studentsWithUIState = studentData.map(s => {
-      // Check if the Present button is active in the UI
-      const btnGrp = document.getElementById(`barcodeAttendanceSelect_${s.Std_ID}`);
+      const btnGrp = document.getElementById(prefix + s.Std_ID);          // CHANGED
       const isUIPresent = btnGrp ? btnGrp.querySelector('.present-btn.active') !== null : false;
       
       return { 
         Barcode_ID: s.Barcode_ID, 
         Student_Name: s.Student_Name, 
         Std_ID: s.Std_ID,
-        attendanceStatus: s.attendanceStatus,  // Database status
-        isUIPresent: isUIPresent               // UI button state
+        attendanceStatus: s.attendanceStatus,
+        isUIPresent: isUIPresent
       };
     });
     
@@ -5521,10 +5523,10 @@ function handleBarcodeMessage(event) {
   if (event.data?.type === "BARCODE_SCAN" && event.data.isValid && !event.data.isDuplicate) { 
     let student = studentData.find(s => s.Barcode_ID === event.data.barcode); 
     if (student) { 
-      let btn = document.getElementById(`barcodeAttendanceSelect_${student.Std_ID}`)?.querySelector(".present-btn"); 
+      let btn = document.getElementById(prefix + student.Std_ID)?.querySelector(".present-btn");  // CHANGED
       if (btn && !btn.classList.contains("active")) { 
         btn.click(); 
-        updateBarcodeDashboard(); 
+        if (isPrevPage) updatePrevBarcodeDashboard(); else updateBarcodeDashboard();   // CHANGED
       }
     } 
   } 
