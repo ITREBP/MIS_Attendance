@@ -292,6 +292,12 @@ if (userStatus === 'Inactive') {
         
         // SECOND: Check password
         if (data[i][passwordCol] === password) {
+          // THIRD: Sirf UserType 'teacher' wale users hi login kar sakte hain
+          const userType = String(data[i][typeCol] || '').trim();
+          if (userType.toLowerCase() !== 'teacher') {
+            return { blocked: true, message: 'This account is not authorized to use the attendance system.' };
+          }
+
           userData = {
             password: data[i][passwordCol],
             type: data[i][typeCol] || 'teacher',

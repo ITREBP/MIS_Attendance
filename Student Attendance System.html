@@ -3808,7 +3808,8 @@ function handleLogin(e) {
   showLoading(true, "Authenticating..."); 
   google.script.run.withSuccessHandler(user => { 
     showLoading(false); 
-    if (user) loginSuccess(user); 
+    if (user && user.blocked) showPopup("Access Denied", user.message);
+    else if (user) loginSuccess(user); 
     else showPopup("Error", "Invalid credentials"); 
   }).withFailureHandler(err => { 
     showLoading(false); 
