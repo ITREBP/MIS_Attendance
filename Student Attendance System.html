@@ -2618,6 +2618,7 @@
 // ------------------------------  GLOBAL VARIABLES  ------------------------------
 let currentUser = null, studentData = [], assignedClassSections = [], userPermissions = { canMarkManual: false, canMarkBarcode: false, canSeeSummary: false, canSetupHours: false, canUpdateBatchHours: false };
 let currentClassHours = 0;
+let currentClassCategory = '';
 let scannedStudents = new Set();
 let isSubmitting = false;
 let prevHtml5QrcodeScanner = null;
@@ -3756,7 +3757,7 @@ async function submitInBatches(attendanceData, classSection, date, username, isB
           google.script.run
             .withSuccessHandler(() => resolve())
             .withFailureHandler(error => reject(error))
-            .markAttendance(batch, classSection, date, username, isBarcode, currentUser.recId);
+            .markAttendance(batch, classSection, date, username, isBarcode, currentUser.recId, currentClassCategory, currentClassHours);
         });
         success = true;
         break;
@@ -3944,23 +3945,19 @@ function checkAndPromptHours(date, classSection, callback) {
       if (check.exists) { 
         showLoading(true, "Hours configured."); 
         currentClassHours = Number(check.hours) || 0;
+        currentClassCategory = check.category || '';
         // ✅ Pass the hours data to the callback
         callback(check); 
       } else { 
         showLoading(false); 
-        showSingleHoursSetup(date, classSection, () => { 
-          showLoading(true, "Hours saved."); 
-          // ✅ After saving, fetch and pass the data
-          google.script.run
-            .withSuccessHandler(savedCheck => {
-              currentClassHours = savedCheck ? (Number(savedCheck.hours) || 0) : 0;
-              callback(savedCheck);
-            })
-            .withFailureHandler(() => {
-              callback(null);
-            })
-            .checkDailyHours(date, classSection, 'normal');
-        }); 
+        // ⚠️ deferSave=true: yahan Daily_Hours_Setup mein KUCH save nahi hoga.
+        // Chuni gayi category/hours sirf memory mein rakhi jayengi, actual save
+        // tab hoga jab attendance Submit ho.
+        showSingleHoursSetup(date, classSection, (chosen) => { 
+          currentClassHours = Number(chosen.hours) || 0;
+          currentClassCategory = chosen.category || '';
+          callback({ exists: true, hours: chosen.hours, category: chosen.category });
+        }, true); 
       } 
     })
     .withFailureHandler(err => { 
@@ -3971,7 +3968,7 @@ function checkAndPromptHours(date, classSection, callback) {
      .checkDailyHours(date, classSection, 'normal'); 
 }
 
-function showSingleHoursSetup(date, classSection, callback) { 
+function showSingleHoursSetup(date, classSection, callback, deferSave = false) { 
   showLoading(true, "Loading hours setup..."); 
   document.getElementById("setupDate").textContent = date; 
   document.getElementById("setupClassSection").textContent = classSection; 
@@ -3989,6 +3986,14 @@ function showSingleHoursSetup(date, classSection, callback) {
       showPopup("Error", "Please select both."); 
       return; 
     } 
+    if (deferSave) {
+      // Attendance-marking flow: yahan save nahi karna, sirf values wapis bhejo.
+      // Popup band hote hi loading dikhao taake attendance-screen aane tak gap na dikhe.
+      closeSingleHoursSetup();
+      showLoading(true, "Loading...");
+      if (callback) callback({ category, hours });
+      return;
+    }
     showLoading(true, "Saving..."); 
     google.script.run
       .withSuccessHandler(() => { 
@@ -4254,11 +4259,9 @@ function showTodayAttendanceForm() {
   if (!currentUser.classSection) return showPopup("Error", "Select a class");
   try { isWithinScheduleClientSide(); } catch (e) { return showPopup("Warning", e.message); }
   let today = getTodayDate();
-  showLoading(true, "Checking term...");
+  showLoading(true, "Loading...");
   google.script.run
     .withSuccessHandler(term => {
-      if (!term) { showLoading(false); showPopup("Error", `No active term for ${currentUser.classSection}.`); return; }
-      
       // ✅ Now callback receives the hours data
       checkAndPromptHours(today, currentUser.classSection, (hoursData) => {
         fetchStudentList().then(students => {
@@ -4290,11 +4293,9 @@ function showBarcodeAttendanceFormWithPopup() {
   if (!currentUser.classSection) return showPopup("Error", "Select a class");
   try { isWithinScheduleClientSide(); } catch (e) { return showPopup("Warning", e.message); }
   let today = getTodayDate();
-  showLoading(true, "Checking term...");
+  showLoading(true, "Loading...");
   google.script.run
     .withSuccessHandler(term => {
-      if (!term) { showLoading(false); showPopup("Error", `No active term for ${currentUser.classSection}.`); return; }
-      
       // ✅ Now callback receives the hours data
       checkAndPromptHours(today, currentUser.classSection, (hoursData) => {
         fetchStudentList().then(students => {
@@ -5495,19 +5496,21 @@ function setupBarcodeMessageListener() {
 }
 
 function handleBarcodeMessage(event) { 
+  // NEW: page ke hisab se sahi prefix chunein
+  const isPrevPage = getCurrentVisiblePage() === "previousBarcodeAttendanceContainer";
+  const prefix = isPrevPage ? "prevBarcodeAttendanceSelect_" : "barcodeAttendanceSelect_";
+
   if (event.data?.type === "REQUEST_STUDENT_DATA") { 
-    // Get current UI selection state for each student
     const studentsWithUIState = studentData.map(s => {
-      // Check if the Present button is active in the UI
-      const btnGrp = document.getElementById(`barcodeAttendanceSelect_${s.Std_ID}`);
+      const btnGrp = document.getElementById(prefix + s.Std_ID);          // CHANGED
       const isUIPresent = btnGrp ? btnGrp.querySelector('.present-btn.active') !== null : false;
       
       return { 
         Barcode_ID: s.Barcode_ID, 
         Student_Name: s.Student_Name, 
         Std_ID: s.Std_ID,
-        attendanceStatus: s.attendanceStatus,  // Database status
-        isUIPresent: isUIPresent               // UI button state
+        attendanceStatus: s.attendanceStatus,
+        isUIPresent: isUIPresent
       };
     });
     
@@ -5520,10 +5523,10 @@ function handleBarcodeMessage(event) {
   if (event.data?.type === "BARCODE_SCAN" && event.data.isValid && !event.data.isDuplicate) { 
     let student = studentData.find(s => s.Barcode_ID === event.data.barcode); 
     if (student) { 
-      let btn = document.getElementById(`barcodeAttendanceSelect_${student.Std_ID}`)?.querySelector(".present-btn"); 
+      let btn = document.getElementById(prefix + student.Std_ID)?.querySelector(".present-btn");  // CHANGED
       if (btn && !btn.classList.contains("active")) { 
         btn.click(); 
-        updateBarcodeDashboard(); 
+        if (isPrevPage) updatePrevBarcodeDashboard(); else updateBarcodeDashboard();   // CHANGED
       }
     } 
   } 
@@ -6461,12 +6464,6 @@ function handleDashboardClassSectionSwitch() {
       showLoading(true, "Loading new class..."); 
       google.script.run
         .withSuccessHandler(term => { 
-          if (!term) { 
-            showLoading(false); 
-            showPopup("Error", `No active term for ${newCS}.`); 
-            handleNavigation("welcomeContainer"); 
-            return; 
-          } 
           checkAndPromptHours(today, newCS, () => { 
             fetchStudentList(today).then(students => { 
               studentData = students; 
