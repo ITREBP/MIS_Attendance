@@ -2695,7 +2695,7 @@ function showPasswordPopupForEpisodic(date) {
         const instructionElem = document.getElementById("episodicDateInstruction");
         if (instructionElem) instructionElem.remove();
       })
-      .checkPreviousDatePermission(currentUser.username, pendingEpisodicDate);
+      .checkPreviousDatePermission(currentUser.username, pendingEpisodicDate, 'Episodic');
   };
   
   document.getElementById("passwordPopup").classList.add("active");
@@ -2750,7 +2750,7 @@ function populateEpisodicDates(onReady) {
       sel.value = today;
       loadEpisodicEventsForDate(onReady);
     })
-    .getAllowedPreviousDates(currentUser.username);
+    .getAllowedPreviousDates(currentUser.username, 'Episodic');
 }
 
 // After a date is chosen, fill the Event dropdown from the Episodic_Events sheet
@@ -3417,7 +3417,7 @@ function populateEpisodicEventDates() {
       future.forEach(d => sel.appendChild(new Option(formatDateDMY(d) + (d === today ? " (Today)" : ""), d)));
       sel.value = today;
     })
-    .getAllowedPreviousDates(currentUser.username);
+    .getAllowedPreviousDates(currentUser.username, 'Episodic');
 }
 
 function populateEpisodicEventClassSections() {
@@ -5153,14 +5153,14 @@ function verifyPreviousPassword(e) {
             dates.forEach(d => sel.appendChild(new Option(d, d))); 
             handleNavigation("dateSelectionContainer"); 
           })
-          .getAllowedPreviousDates(currentUser.username); 
+          .getAllowedPreviousDates(currentUser.username, 'Normal');
       } else showPopup("Error", "Invalid password"); 
     })
     .withFailureHandler(err => { 
       showLoading(false); 
       showPopup("Error", err.message); 
     })
-    .verifyPreviousPassword(currentUser.username, pwd); 
+    .verifyPreviousPassword(currentUser.username, pwd, 'Normal');
 }
 
 function verifyAndShowPreviousDates(mode) { 
@@ -5205,7 +5205,11 @@ function verifyAndShowPreviousDates(mode) {
         showPopup("Error", "Not authorized"); 
       } 
     })
-    .checkPreviousDatePermission(currentUser.username, date); 
+    .withFailureHandler(err => {
+      showLoading(false);
+      showPopup("Access Denied", err.message);
+    })
+    .checkPreviousDatePermission(currentUser.username, date, 'Normal'); 
 }
 
 

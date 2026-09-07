@@ -558,19 +558,68 @@ function getAssignedClassSections(username) {
   }
 }
 
-function verifyPreviousPassword(username, password) {
-  try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Previous_Date_Permissions');
-    if (!sheet) throw new Error('Previous_Date_Permissions sheet not found');
+// ============ PREVIOUS DATE PERMISSION HELPERS ============
 
-    const data = sheet.getDataRange().getValues();
-    for (let i = 1; i < data.length; i++) {
-      const sheetUsername = String(data[i][0]).trim();
-      const sheetPassword = String(data[i][2]).trim();
-      if (sheetUsername === username && sheetPassword === password) {
-        return true;
-      }
+/** Previous_Date_Permissions ki rows — naye columns header se padhta hai, position se farq nahi */
+function getPrevPermRows_() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Previous_Date_Permissions');
+  if (!sheet) throw new Error('Previous_Date_Permissions sheet not found');
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+
+  const headers = data[0].map(h => String(h).trim());
+  const expCol  = headers.indexOf('Expires_At');
+  const typeCol = headers.indexOf('Attendance_Type');
+
+  const rows = [];
+  for (let i = 1; i < data.length; i++) {
+    if (!data[i][0]) continue;
+    rows.push({
+      username:  String(data[i][0]).trim(),
+      dateRaw:   data[i][1],
+      password:  String(data[i][2]).trim(),
+      expiresAt: expCol  !== -1 ? data[i][expCol]  : '',
+      type:      typeCol !== -1 ? String(data[i][typeCol] || '').trim() : ''
+    });
+  }
+  return rows;
+}
+
+/** 24-hour window valid hai? (khaali/kharab value = allow, taaki purani rows na tootein) */
+function prevPermNotExpired_(row) {
+  if (!row.expiresAt) return true;
+  const exp = new Date(row.expiresAt);
+  if (isNaN(exp.getTime())) return true;
+  return new Date().getTime() <= exp.getTime();
+}
+
+/** Attendance_Type match karta hai? ('' ya 'Both' = dono allowed) */
+function prevPermTypeMatches_(row, wantedType) {
+  const want = String(wantedType || '').trim().toLowerCase();
+  if (!want) return true;
+  const have = String(row.type || '').trim().toLowerCase();
+  if (!have || have === 'both') return true;
+  return have === want;
+}
+
+const PREV_PERM_EXPIRED_MSG =
+  'Your previous-date access has expired (24-hour limit crossed). Please request a new permission from the administrator.';
+
+function verifyPreviousPassword(username, password, attendanceType) {
+  try {
+    const rows = getPrevPermRows_();
+    let expired = false;
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.username !== username || r.password !== String(password).trim()) continue;
+      if (!prevPermTypeMatches_(r, attendanceType)) continue;
+      if (!prevPermNotExpired_(r)) { expired = true; continue; }
+      return true;
     }
+
+    if (expired) throw new Error(PREV_PERM_EXPIRED_MSG);
     return false;
   } catch (e) {
     Logger.log(`Error in verifyPreviousPassword: ${e.message}`);
@@ -578,31 +627,29 @@ function verifyPreviousPassword(username, password) {
   }
 }
 
-function checkPreviousDatePermission(username, date) {
+function checkPreviousDatePermission(username, date, attendanceType) {
   try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Previous_Date_Permissions');
-    if (!sheet) throw new Error('Previous_Date_Permissions sheet not found');
+    const rows = getPrevPermRows_();
+    const dateString = new Date(date).toLocaleDateString('en-CA'); // YYYY-MM-DD
+    let expired = false;
 
-    const data = sheet.getDataRange().getValues();
-    const targetDate = new Date(date);
-    const dateString = targetDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.username !== username) continue;
 
-    for (let i = 1; i < data.length; i++) {
-      let sheetDate;
-      try {
-        sheetDate = new Date(data[i][1]);
-        if (isNaN(sheetDate.getTime())) {
-          Logger.log(`Invalid date in Previous_Date_Permissions row ${i + 2}: ${data[i][1]}`);
-          continue;
-        }
-        const sheetDateString = sheetDate.toLocaleDateString('en-CA');
-        if (data[i][0] === username && sheetDateString === dateString) {
-          return true;
-        }
-      } catch (e) {
-        Logger.log(`Error parsing date in row ${i + 2}: ${e.message}`);
+      const sheetDate = new Date(r.dateRaw);
+      if (isNaN(sheetDate.getTime())) {
+        Logger.log(`Invalid date in Previous_Date_Permissions for ${username}: ${r.dateRaw}`);
+        continue;
       }
+      if (sheetDate.toLocaleDateString('en-CA') !== dateString) continue;
+      if (!prevPermTypeMatches_(r, attendanceType)) continue;
+      if (!prevPermNotExpired_(r)) { expired = true; continue; }
+
+      return true;
     }
+
+    if (expired) throw new Error(PREV_PERM_EXPIRED_MSG);
     return false;
   } catch (e) {
     Logger.log(`Error in checkPreviousDatePermission: ${e.message}`);
@@ -629,27 +676,28 @@ function getClassSections() {
 
 let allowedDatesCache = null;
 
-function getAllowedPreviousDates(username) {
-  if (allowedDatesCache && allowedDatesCache.username === username) return allowedDatesCache.dates;
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Previous_Date_Permissions');
-  if (!sheet) throw new Error('Previous_Date_Permissions sheet not found');
-  const data = sheet.getDataRange().getValues();
+function getAllowedPreviousDates(username, attendanceType) {
+  const cacheKey = username + '|' + String(attendanceType || '');
+  if (allowedDatesCache && allowedDatesCache.key === cacheKey) return allowedDatesCache.dates;
+
+  const rows = getPrevPermRows_();
   const allowedDates = [];
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === username && data[i][1]) {
-      try {
-        const date = new Date(data[i][1]);
-        if (!isNaN(date.getTime())) {
-          allowedDates.push(date.toLocaleDateString('en-CA')); // YYYY-MM-DD
-        } else {
-          Logger.log(`Invalid date in Previous_Date_Permissions row ${i + 2}: ${data[i][1]}`);
-        }
-      } catch (e) {
-        Logger.log(`Error parsing date in row ${i + 2}: ${e.message}`);
-      }
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (r.username !== username || !r.dateRaw) continue;
+    if (!prevPermTypeMatches_(r, attendanceType)) continue;   // Normal / Episodic / Both
+    if (!prevPermNotExpired_(r)) continue;                    // 24 ghante guzar gaye
+
+    const d = new Date(r.dateRaw);
+    if (isNaN(d.getTime())) {
+      Logger.log(`Invalid date in Previous_Date_Permissions row for ${username}: ${r.dateRaw}`);
+      continue;
     }
+    allowedDates.push(d.toLocaleDateString('en-CA'));
   }
-  allowedDatesCache = { username, dates: allowedDates };
+
+  allowedDatesCache = { key: cacheKey, dates: allowedDates };
   return allowedDates;
 }
 
