@@ -2049,11 +2049,17 @@
 
 /* Number input ke native spinner arrows chhupao (warna digits clip ho jate hain) */
 .student-hours-input::-webkit-outer-spin-button,
-.student-hours-input::-webkit-inner-spin-button {
+.student-hours-input::-webkit-inner-spin-button,
+.student-cat-input::-webkit-outer-spin-button,
+.student-cat-input::-webkit-inner-spin-button,
+.setup-cat-hrs::-webkit-outer-spin-button,
+.setup-cat-hrs::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
-.student-hours-input {
+.student-hours-input,
+.student-cat-input,
+.setup-cat-hrs {
   -moz-appearance: textfield;
 }
 
@@ -2439,6 +2445,7 @@
         </div>
         <div class="mb-3"><label class="form-label">Category</label><select class="form-control" id="batchCategory" required></select></div>
         <div class="mb-3"><label class="form-label">Hours</label><select class="form-control" id="batchHours" required></select></div>
+        <div id="batchMultiBlock" style="display:none;"><label class="form-label">Categories</label><div id="batchMultiCats" class="mb-3"></div></div>
         <button type="submit" class="btn btn-primary btn-block">Save Batch Hours</button>
       </form>
     </div>
@@ -2566,8 +2573,8 @@
     <div class="loading-progress"><div class="loading-progress-fill" id="loadingProgressFill"></div></div>
   </div>
   
-  <div id="singleHoursSetupPopup" class="password-popup" style="display: none;"><h3><i class="fas fa-clock me-2"></i>Set Hours and Category</h3><p><strong id="setupClassSection"></strong> on <strong id="setupDate"></strong></p><form id="singleHoursForm"><div class="mb-3"><label class="form-label">Category</label><select id="setupCategory" class="form-control" required><option disabled selected>Loading...</option></select></div><div class="mb-3"><label class="form-label">Hours</label><select id="setupHours" class="form-control" required><option disabled selected>Loading...</option></select></div><div class="d-flex gap-2"><button type="button" class="btn btn-secondary" onclick="closeSingleHoursSetup()">Cancel</button><button type="submit" class="btn btn-primary">Save & Continue</button></div></form></div>
-  <div id="batchHoursUpdatePopup" class="password-popup" style="display: none;"><h3><i class="fas fa-clock me-2"></i>Batch Hours Update</h3><form id="batchHoursUpdateForm"><div class="mb-3"><label>Date</label><input type="date" class="form-control" id="batchUpdateDate" required></div><div class="mb-3"><label>Class Section</label><select class="form-control" id="batchUpdateClassSection" required></select></div><div class="mb-3"><label>New Category</label><select class="form-control" id="batchUpdateHours" required></select></div><div class="mb-3"><label>New Hours</label><select class="form-control" id="batchUpdateCategory" required></select></div><div class="d-flex gap-2"><button type="button" class="btn btn-secondary" onclick="closeBatchHoursUpdatePopup()">Cancel</button><button type="submit" class="btn btn-primary">Update Batch Hours</button></div></form></div>
+  <div id="singleHoursSetupPopup" class="password-popup" style="display: none;"><h3><i class="fas fa-clock me-2"></i>Set Hours and Category</h3><p><strong id="setupClassSection"></strong> on <strong id="setupDate"></strong></p><form id="singleHoursForm"><div class="mb-3"><label class="form-label">Category</label><select id="setupCategory" class="form-control" required><option disabled selected>Loading...</option></select></div><div class="mb-3"><label class="form-label">Hours</label><select id="setupHours" class="form-control" required><option disabled selected>Loading...</option></select></div><div id="setupMultiBlock" style="display:none;"><label class="form-label">Categories</label><div id="setupMultiCats" class="mb-2"></div><div id="setupMultiRemaining" class="text-muted mb-3"></div></div><div class="d-flex gap-2"><button type="button" class="btn btn-secondary" onclick="closeSingleHoursSetup()">Cancel</button><button type="submit" class="btn btn-primary">Save & Continue</button></div></form></div>
+  <div id="batchHoursUpdatePopup" class="password-popup" style="display: none;"><h3><i class="fas fa-clock me-2"></i>Batch Hours Update</h3><form id="batchHoursUpdateForm"><div class="mb-3"><label>Date</label><input type="date" class="form-control" id="batchUpdateDate" required></div><div class="mb-3"><label>Class Section</label><select class="form-control" id="batchUpdateClassSection" required></select></div><div class="mb-3"><label>New Category</label><select class="form-control" id="batchUpdateHours" required></select></div><div class="mb-3"><label>New Hours</label><select class="form-control" id="batchUpdateCategory" required></select></div><div id="batchUpdateMultiBlock" style="display:none;"><label>Categories</label><div id="batchUpdateMultiCats" class="mb-3"></div></div><div class="d-flex gap-2"><button type="button" class="btn btn-secondary" onclick="closeBatchHoursUpdatePopup()">Cancel</button><button type="submit" class="btn btn-primary">Update Batch Hours</button></div></form></div>
     <!-- CREATE EPISODIC EVENT POPUP -->
   <div id="episodicEventPopup" class="password-popup" style="display:none; width:460px; max-height:90vh; overflow-y:auto;">
     <h3><i class="fas fa-calendar-plus me-2"></i>Create Episodic Event</h3>
@@ -3025,7 +3032,7 @@ function renderEpisodicStudentList(students) {
     container.appendChild(li);
   });
 
-  bindStudentHoursControls();
+  bindStudentHoursControls(); bindMultiHoursControls();
 }
 
 function setEpisodicStudentStatus(button, status) {
@@ -3939,6 +3946,106 @@ function isWithinScheduleClientSide() {
   return true; 
 }
 
+function parseCatBreakdown(str) {
+  const s = String(str || ''); if (s.indexOf(' + ') === -1) return null;
+  const items = [];
+  for (const part of s.split(' + ')) { const m = part.trim().match(/^(.+) \((\d+(?:\.\d+)?)\)$/); if (!m) return null; items.push({ name: m[1], hours: Number(m[2]) }); }
+  return items;
+}
+function formatCatBreakdown(items) { return items.length === 1 ? items[0].name : items.map(i => `${i.name} (${Number(i.hours)})`).join(' + '); }
+function dayBreakdown() { return userPermissions.canMultiCategory ? parseCatBreakdown(currentClassCategory) : null; }
+function bannerHoursText(d) { const it = userPermissions.canMultiCategory ? parseCatBreakdown(d.category) : null; return it ? it.map(i => Number(i.hours)).join(', ') + ' (total ' + Number(d.hours) + ')' : d.hours; }
+function bannerCategoryText(d) { const it = userPermissions.canMultiCategory ? parseCatBreakdown(d.category) : null; return it ? it.map(i => i.name).join(', ') : d.category; }
+
+const multiDdHandlers = {};
+function initSetupMultiUI(on) { initMultiUI(on, "setupCategory", "setupHours", "setupMultiBlock", "setupMultiCats"); }
+function initMultiUI(on, catId, hrsId, blockId, boxId) {
+  const catSel = document.getElementById(catId);
+  catSel.closest(".mb-3").style.display = on ? "none" : "";
+  catSel.required = !on;
+  document.getElementById(blockId).style.display = on ? "" : "none";
+  const hrsSel = document.getElementById(hrsId);
+  if (multiDdHandlers[boxId]) { document.removeEventListener("click", multiDdHandlers[boxId]); delete multiDdHandlers[boxId]; }
+  if (!on) { hrsSel.onchange = null; return; }
+
+  const box = document.getElementById(boxId);
+  const cats = Array.from(catSel.options).filter(o => o.value).map(o => o.value);
+  box.innerHTML =
+    `<button type="button" class="form-control setup-dd-btn" style="text-align:left;">Select categories</button>` +
+    `<div class="setup-dd-panel" style="display:none;max-height:180px;overflow:auto;border:1px solid var(--gray-200);border-radius:8px;padding:6px;margin-top:4px;">` +
+    cats.map(c => `<label style="display:flex;align-items:center;gap:8px;margin:4px 0;"><input type="checkbox" class="setup-cat-chk" value="${escapeHtml(c)}"> ${escapeHtml(c)}</label>`).join("") +
+    `</div><div class="setup-cat-steppers" style="margin-top:10px;"></div>`;
+  const btn = box.querySelector(".setup-dd-btn"), panel = box.querySelector(".setup-dd-panel"), steppers = box.querySelector(".setup-cat-steppers");
+  const vals = {};
+  const total = () => Number(hrsSel.value) || 0;
+  const round2 = n => Math.round(n * 100) / 100;
+  const selectedCats = () => Array.from(box.querySelectorAll(".setup-cat-chk:checked")).map(c => c.value);
+
+  // Equal split in quarter-hours (1 category = all the hours, 2 = half each); the parts always add up to the total
+  const autoSplit = () => {
+    const sel = selectedCats(), n = sel.length, units = Math.round(total() / 0.25);
+    if (!n) return;
+    const base = Math.floor(units / n), extra = units - base * n;
+    sel.forEach((c, k) => { vals[c] = (base + (k < extra ? 1 : 0)) * 0.25; });
+  };
+  const syncValues = () => {
+    steppers.querySelectorAll(".setup-cat-row").forEach(row => {
+      row.querySelector(".setup-cat-hrs").value = vals[row.getAttribute("data-cat")] || 0;
+    });
+    const rem = steppers.querySelector(".setup-cat-remaining");
+    if (rem) {
+      const left = round2(total() - selectedCats().reduce((a, c) => a + (vals[c] || 0), 0));
+      rem.textContent = "Remaining: " + left;
+      rem.style.color = left === 0 ? "" : "#d9534f";
+    }
+  };
+  const render = () => {
+    const sel = selectedCats();
+    btn.textContent = sel.length ? sel.join(", ") : "Select categories";
+    steppers.innerHTML = sel.map(c => `<div class="setup-cat-row" data-cat="${escapeHtml(c)}" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;"><span style="flex:1;">${escapeHtml(c)}</span><button type="button" class="hours-step hours-minus">&minus;</button><input type="number" class="setup-cat-hrs" data-cat="${escapeHtml(c)}" readonly style="width:56px;text-align:center;padding:3px;border:1px solid var(--gray-200);border-radius:7px;background:var(--card-bg);color:var(--gray-900);font-weight:600;font-size:13px;"><button type="button" class="hours-step hours-plus">+</button></div>`).join("") +
+      (sel.length > 1 ? `<div class="setup-cat-remaining text-muted" style="font-size:12px;"></div>` : "");
+    steppers.querySelectorAll(".setup-cat-row").forEach(row => {
+      const c = row.getAttribute("data-cat");
+      const minus = row.querySelector(".hours-minus"), plus = row.querySelector(".hours-plus");
+      if (sel.length === 1) { minus.disabled = true; plus.disabled = true; row.style.opacity = "0.7"; return; }   // a single category always carries all the hours
+      const step = dir => {
+        const t = total();
+        const maxV = sel.length === 2 ? t - 0.25 : t;
+        vals[c] = Math.min(maxV, Math.max(0.25, round2((vals[c] || 0) + dir * 0.25)));
+        if (sel.length === 2) vals[sel.find(x => x !== c)] = round2(t - vals[c]);   // with 2 categories the other one balances automatically
+        syncValues();
+      };
+      minus.onclick = () => step(-1);
+      plus.onclick = () => step(1);
+    });
+    syncValues();
+  };
+  const refresh = () => { autoSplit(); render(); };
+
+  btn.onclick = () => { panel.style.display = panel.style.display === "none" ? "block" : "none"; };
+  box.querySelectorAll(".setup-cat-chk").forEach(ch => { ch.onchange = refresh; });
+  hrsSel.onchange = refresh;
+  multiDdHandlers[boxId] = e => { if (!box.contains(e.target)) panel.style.display = "none"; };
+  document.addEventListener("click", multiDdHandlers[boxId]);
+}
+// Returns { category } (plain name or encoded breakdown) or { error } for the given multi-category box and total hours
+function resolveMultiCategory(boxId, hours) {
+  const picked = getSetupPicked(boxId);
+  if (!hours || picked.length === 0) return { error: "Please select the total hours and at least one category." };
+  if (picked.length === 1) return { category: picked[0].name };
+  if (picked.some(p => p.hours < 0.25)) return { error: "Each selected category must have at least 0.25 hours." };
+  if (Math.abs(picked.reduce((a, p) => a + p.hours, 0) - Number(hours)) > 0.001) return { error: "The category hours must add up to the total hours (" + hours + ")." };
+  return { category: formatCatBreakdown(picked) };
+}
+function getSetupPicked(boxId = "setupMultiCats") {
+  const box = document.getElementById(boxId);
+  const inputs = Array.from(box.querySelectorAll(".setup-cat-hrs"));
+  return Array.from(box.querySelectorAll(".setup-cat-chk:checked")).map(ch => {
+    const inp = inputs.find(i => i.getAttribute("data-cat") === ch.value);
+    return { name: ch.value, hours: inp ? Number(inp.value) || 0 : 0 };
+  });
+}
+
 function checkAndPromptHours(date, classSection, callback) { 
   showLoading(true, "Checking hours..."); 
   google.script.run
@@ -3975,6 +4082,7 @@ function showSingleHoursSetup(date, classSection, callback, deferSave = false) {
   document.getElementById("setupClassSection").textContent = classSection; 
   let popup = document.getElementById("singleHoursSetupPopup"), backdrop = document.getElementById("modalBackdrop"); 
   populateCategoriesAndHours("setupCategory", "setupHours", () => {
+    initSetupMultiUI(!!userPermissions.canMultiCategory);
     showLoading(false);
     popup.style.display = "block"; 
     backdrop.classList.add("active"); 
@@ -3982,7 +4090,17 @@ function showSingleHoursSetup(date, classSection, callback, deferSave = false) {
   let form = document.getElementById("singleHoursForm"); 
   const submitHandler = (e) => { 
     e.preventDefault(); 
-    let category = document.getElementById("setupCategory").value, hours = document.getElementById("setupHours").value; 
+    let category = document.getElementById("setupCategory").value, hours = document.getElementById("setupHours").value;
+    if (userPermissions.canMultiCategory) {
+      const picked = getSetupPicked();
+      if (!hours || picked.length === 0) { showPopup("Error", "Please select the total hours and at least one category."); return; }
+      if (picked.length === 1) { category = picked[0].name; }
+      else {
+        if (picked.some(p => p.hours < 0.25)) { showPopup("Error", "Each selected category must have at least 0.25 hours."); return; }
+        if (Math.abs(picked.reduce((a, p) => a + p.hours, 0) - Number(hours)) > 0.001) { showPopup("Error", "The category hours must add up to the total hours (" + hours + ")."); return; }
+        category = formatCatBreakdown(picked);
+      }
+    } 
     if (!category || !hours) { 
       showPopup("Error", "Please select both."); 
       return; 
@@ -4079,7 +4197,7 @@ function displayHoursStatus(data, date, markedClasses = []) {
     const isMarked = markedClasses.includes(i.classSection);
     const rowStyle = isMarked ? ' style="opacity:0.45;"' : '';
     const lockIcon = isMarked ? ' <i class="fas fa-lock" title="Attendance already marked"></i>' : '';
-    html += `<tr${rowStyle}><td><strong>${i.classSection}</strong>${lockIcon}</td><td><span class="badge bg-primary">${i.hours}</span></td><td><span class="badge bg-secondary">${i.category}</span></td><td><small>${i.teacherId || 'Unknown'}</small></td></tr>`; 
+    html += `<tr${rowStyle}><td><strong>${i.classSection}</strong>${lockIcon}</td><td><span class="badge bg-primary">${bannerHoursText(i)}</span></td><td><span class="badge bg-secondary">${bannerCategoryText(i)}</span></td><td><small>${i.teacherId || 'Unknown'}</small></td></tr>`; 
   }); 
   html += `</tbody></table></div>`; 
   container.innerHTML = html; 
@@ -4156,6 +4274,7 @@ function showBatchHoursFromStatus() {
 
   // Sab load hone ke BAAD page dikhao
   Promise.all([pCats, pHours, pMarked]).then(() => {
+    initMultiUI(!!userPermissions.canMultiCategory, "batchCategory", "batchHours", "batchMultiBlock", "batchMultiCats");
     showLoading(false);
     handleNavigation("hoursSetupContainer");
   });
@@ -4171,6 +4290,7 @@ function showBatchHoursUpdateForm() {
   } 
   showLoading(true, "Loading categories & hours...");
   populateCategoriesAndHours("batchUpdateHours", "batchUpdateCategory", () => {
+    initMultiUI(!!userPermissions.canMultiCategory, "batchUpdateHours", "batchUpdateCategory", "batchUpdateMultiBlock", "batchUpdateMultiCats");
     showLoading(false);
     const popup = document.getElementById("batchHoursUpdatePopup"); 
     if (popup) { 
@@ -4196,9 +4316,14 @@ function closeBatchHoursUpdatePopup() {
 
 function submitBatchHoursUpdate() { 
   const date = document.getElementById("batchUpdateDate").value, 
-        cls = document.getElementById("batchUpdateClassSection").value, 
-        hrs = document.getElementById("batchUpdateHours").value, 
-        cat = document.getElementById("batchUpdateCategory").value; 
+        cls = document.getElementById("batchUpdateClassSection").value;
+  let hrs = document.getElementById("batchUpdateHours").value,      // NOTE: this is really the category select
+        cat = document.getElementById("batchUpdateCategory").value;   // and this is really the hours select
+  if (userPermissions.canMultiCategory) {
+    const r = resolveMultiCategory("batchUpdateMultiCats", cat);
+    if (r.error) return showPopup("Error", r.error);
+    hrs = r.category;
+  }
   if (!date || !cls || !hrs || !cat) return showPopup("Error", "Fill all fields"); 
   closeBatchHoursUpdatePopup(); 
   showLoading(true, "Updating hours..."); 
@@ -4222,8 +4347,13 @@ document.getElementById("batchHoursForm")?.addEventListener("submit", function(e
   const date = document.getElementById("batchDate").value;
   const classSelect = document.getElementById("batchClassSections");
   const selectedClasses = Array.from(classSelect.selectedOptions).map(opt => opt.value);
-  const category = document.getElementById("batchCategory").value;
+  let category = document.getElementById("batchCategory").value;
   const hours = document.getElementById("batchHours").value;
+  if (userPermissions.canMultiCategory) {
+    const r = resolveMultiCategory("batchMultiCats", hours);
+    if (r.error) return showPopup("Error", r.error);
+    category = r.category;
+  }
   
   if (!date || selectedClasses.length === 0 || !category || !hours) {
     showPopup("Error", "Please fill all fields and select at least one class");
@@ -4272,8 +4402,8 @@ function showTodayAttendanceForm() {
           
           // ✅ Display hours from the data we already fetched
           if (hoursData && hoursData.exists) {
-            document.getElementById("attendanceHoursValue").textContent = hoursData.hours || "--";
-            document.getElementById("attendanceCategoryValue").textContent = hoursData.category || "--";
+            document.getElementById("attendanceHoursValue").textContent = bannerHoursText(hoursData) || "--";
+            document.getElementById("attendanceCategoryValue").textContent = bannerCategoryText(hoursData) || "--";
           } else {
             document.getElementById("attendanceHoursValue").textContent = "Not set";
             document.getElementById("attendanceCategoryValue").textContent = "Not set";
@@ -4307,8 +4437,8 @@ function showBarcodeAttendanceFormWithPopup() {
           
           // ✅ Display hours from the data we already fetched
           if (hoursData && hoursData.exists) {
-            document.getElementById("barcodeHoursValue").textContent = hoursData.hours || "--";
-            document.getElementById("barcodeCategoryValue").textContent = hoursData.category || "--";
+            document.getElementById("barcodeHoursValue").textContent = bannerHoursText(hoursData) || "--";
+            document.getElementById("barcodeCategoryValue").textContent = bannerCategoryText(hoursData) || "--";
           } else {
             document.getElementById("barcodeHoursValue").textContent = "Not set";
             document.getElementById("barcodeCategoryValue").textContent = "Not set";
@@ -4346,10 +4476,63 @@ function fetchStudentList(date = null) {
   }); 
 }
 
+function buildMultiHoursControl(dayItems, s) {
+  let vals = dayItems.map(i => i.hours);
+  const prev = parseCatBreakdown(s.Category);
+  if (prev) vals = dayItems.map(i => { const p = prev.find(x => x.name === i.name); return p ? Math.min(i.hours, p.hours) : 0; });
+  else if (s.Category && Number(s.Hours) > 0 && dayItems.some(i => i.name === s.Category))
+    vals = dayItems.map(i => i.name === s.Category ? Math.min(i.hours, Number(s.Hours)) : 0);
+  return `<div class="student-multi-hours-control" style="display:inline-flex;flex-direction:column;gap:2px;margin-left:4px;">` +
+    dayItems.map((i, k) => `<div class="student-cat-row" data-cat="${escapeHtml(i.name)}" data-max="${i.hours}" style="display:inline-flex;align-items:center;gap:3px;"><span style="font-size:11px;min-width:60px;">${escapeHtml(i.name)}</span><button type="button" class="hours-step hours-minus">&minus;</button><input type="number" class="student-cat-input" value="${vals[k]}" min="0" max="${i.hours}" step="0.25" readonly disabled style="width:48px;text-align:center;padding:3px;border:1px solid var(--gray-200);border-radius:7px;background:var(--card-bg);color:var(--gray-900);font-weight:600;font-size:12px;"><button type="button" class="hours-step hours-plus">+</button></div>`).join('') + `</div>`;
+}
+function setMultiHoursEnabled(ctrl, enabled) {
+  ctrl.querySelectorAll("input,button").forEach(el => el.disabled = !enabled);
+  ctrl.style.opacity = enabled ? "1" : "0.5";
+  if (!enabled) ctrl.querySelectorAll(".student-cat-row").forEach(r => { r.querySelector(".student-cat-input").value = r.getAttribute("data-max"); });
+}
+function bindMultiHoursControls() {
+  document.querySelectorAll(".student-multi-hours-control").forEach(ctrl => {
+    ctrl.querySelectorAll(".student-cat-row").forEach(row => {
+      const input = row.querySelector(".student-cat-input"), maxH = Number(row.getAttribute("data-max")) || 0;
+      const total = () => Array.from(ctrl.querySelectorAll(".student-cat-input")).reduce((a, i) => a + Number(i.value || 0), 0);
+      const step = dir => {
+        if (input.disabled) return;
+        const cur = Number(input.value) || 0;
+        const nv = Math.min(maxH, Math.max(0, Math.round((cur + dir * 0.25) * 100) / 100));
+        if (total() + (nv - cur) < 0.25) return;     // a student's total hours cannot become 0
+        input.value = nv;
+      };
+      row.querySelector(".hours-minus").onclick = () => step(-1);
+      row.querySelector(".hours-plus").onclick = () => step(1);
+    });
+    const item = ctrl.closest(".member-item");
+    setMultiHoursEnabled(ctrl, !!(item && item.querySelector(".attendance-btn.present.active")));
+  });
+}
+function readStudentHours_(item, status, student) {
+  let hours = currentClassHours || 0, category = '';
+  const multi = item.querySelector('.student-multi-hours-control');
+  if (status === 'Present') {
+    if (multi) {
+      const picked = Array.from(multi.querySelectorAll('.student-cat-row')).map(r => ({ name: r.getAttribute('data-cat'), hours: Number(r.querySelector('.student-cat-input').value) || 0 })).filter(p => p.hours > 0);
+      hours = picked.reduce((a, p) => a + p.hours, 0);
+      category = formatCatBreakdown(picked);
+    } else {
+      const hoursInput = item.querySelector('.student-hours-input');
+      hours = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
+    }
+  }
+  const prevHours = (student.Hours === null || student.Hours === undefined || student.Hours === '') ? null : Number(student.Hours);
+  const catChanged = !!multi && category !== String(student.Category || '');
+  const changed = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hours) !== prevHours || catChanged);
+  return { hours, category, changed };
+}
+
 function renderStudentList(students, listId, prefix) { 
   let container = document.getElementById(listId); 
   container.innerHTML = ""; 
   const showHours = userPermissions.canEditStudentHours && Number(currentClassHours) > 0;
+  const dayItems = dayBreakdown();
   students.forEach(s => { 
     let li = document.createElement("li"); 
     li.className = "member-item"; 
@@ -4360,7 +4543,7 @@ function renderStudentList(students, listId, prefix) {
       if (s.Hours !== null && s.Hours !== undefined && s.Hours !== '' && Number(s.Hours) > 0) {
         initVal = Math.min(ch, Math.max(0.25, Number(s.Hours)));
       }
-            hoursHtml = `<div class="student-hours-control" data-classhours="${ch}" style="display:inline-flex; align-items:center; gap:3px; margin-left:4px;">
+            hoursHtml = dayItems ? buildMultiHoursControl(dayItems, s) : `<div class="student-hours-control" data-classhours="${ch}" style="display:inline-flex; align-items:center; gap:3px; margin-left:4px;">
         <button type="button" class="hours-step hours-minus">&minus;</button>
         <input type="number" class="student-hours-input" value="${initVal}" min="0.25" max="${ch}" step="0.25" readonly disabled style="width:40px; text-align:center; padding:3px; border:1px solid var(--gray-200); border-radius:7px; background:var(--card-bg); color:var(--gray-900); font-weight:600; font-size:12px;">
         <button type="button" class="hours-step hours-plus">+</button>
@@ -4370,7 +4553,7 @@ function renderStudentList(students, listId, prefix) {
     container.appendChild(li); 
   }); 
   bindAttendanceButtons(); 
-  bindStudentHoursControls();
+  bindStudentHoursControls(); bindMultiHoursControls();
 }
 
 function bindAttendanceButtons() { 
@@ -4383,6 +4566,8 @@ function bindAttendanceButtons() {
       const item = this.closest(".member-item");
       const ctrl = item ? item.querySelector(".student-hours-control") : null;
       if (ctrl) setStudentHoursEnabled(ctrl, this.getAttribute("data-status") === "Present");
+      const multiCtrl = item ? item.querySelector(".student-multi-hours-control") : null;
+      if (multiCtrl) setMultiHoursEnabled(multiCtrl, this.getAttribute("data-status") === "Present");
       updateDashboard(); 
       updateBarcodeDashboard();
       updatePrevBarcodeDashboard();
@@ -4553,7 +4738,9 @@ function validateAndMarkAttendance() {
         hoursValue = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
       }
       const prevHours = (student.Hours === null || student.Hours === undefined || student.Hours === '') ? null : Number(student.Hours);
-      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursValue) !== prevHours);
+      const hv = readStudentHours_(item, status, student);
+      if (hv.category) hoursValue = hv.hours;
+      const hoursChanged = hv.changed;
       if (student.attendanceStatus !== 'Not marked' && status === student.attendanceStatus && !hoursChanged) {
         alreadyMarkedStudents.push(student.Student_Name);
       } else if (status !== 'Not marked') {
@@ -4566,7 +4753,8 @@ function validateAndMarkAttendance() {
           Student_Section: student.Student_Section,
           Status: status,
           Date: date,
-          Hours: hoursValue
+          Hours: hoursValue,
+          Category: hv.category
         });
       }
     }
@@ -4631,7 +4819,9 @@ function validateAndMarkBarcodeAttendance() {
         hoursValue = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
       }
       const prevHours = (student.Hours === null || student.Hours === undefined || student.Hours === '') ? null : Number(student.Hours);
-      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursValue) !== prevHours);
+      const hv = readStudentHours_(item, status, student);
+      if (hv.category) hoursValue = hv.hours;
+      const hoursChanged = hv.changed;
       if (student.attendanceStatus !== 'Not marked' && status === student.attendanceStatus && !hoursChanged) {
         alreadyMarkedStudents.push(student.Student_Name);
       } else if (status !== 'Not marked') {
@@ -4644,7 +4834,8 @@ function validateAndMarkBarcodeAttendance() {
           Student_Section: student.Student_Section,
           Status: status,
           Date: date,
-          Hours: hoursValue
+          Hours: hoursValue,
+          Category: hv.category
         });
       }
     }
@@ -4724,7 +4915,9 @@ function validateAndMarkPrevBarcodeAttendance() {
         hoursValue = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
       }
       const prevHours = (student.Hours === null || student.Hours === undefined || student.Hours === '') ? null : Number(student.Hours);
-      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursValue) !== prevHours);
+      const hv = readStudentHours_(item, status, student);
+      if (hv.category) hoursValue = hv.hours;
+      const hoursChanged = hv.changed;
       if (status !== 'Not marked' && (student.attendanceStatus !== status || hoursChanged)) {
         attendanceData.push({
           Attendance_ID: generateUUID(),
@@ -4735,7 +4928,8 @@ function validateAndMarkPrevBarcodeAttendance() {
           Student_Section: student.Student_Section,
           Status: status,
           Date: date,
-          Hours: hoursValue
+          Hours: hoursValue,
+          Category: hv.category
         });
       }
     }
@@ -4801,7 +4995,9 @@ function validateAndMarkPreviousAttendance() {
         hoursValue = hoursInput ? Number(hoursInput.value) : (currentClassHours || 0);
       }
       const prevHours = (student.Hours === null || student.Hours === undefined || student.Hours === '') ? null : Number(student.Hours);
-      const hoursChanged = userPermissions.canEditStudentHours && status === 'Present' && (prevHours === null || Number(hoursValue) !== prevHours);
+      const hv = readStudentHours_(item, status, student);
+      if (hv.category) hoursValue = hv.hours;
+      const hoursChanged = hv.changed;
       if (status !== 'Not marked' && (student.attendanceStatus !== status || hoursChanged)) {
         attendanceData.push({
           Attendance_ID: generateUUID(),
@@ -4812,7 +5008,8 @@ function validateAndMarkPreviousAttendance() {
           Student_Section: student.Student_Section,
           Status: status,
           Date: date,
-          Hours: hoursValue
+          Hours: hoursValue,
+          Category: hv.category
         });
       }
     }
@@ -5178,8 +5375,8 @@ function verifyAndShowPreviousDates(mode) {
               document.getElementById("attendanceClassSection").textContent = currentUser.classSection;
               document.getElementById("dateForToday").textContent = date;
               if (hoursData && hoursData.exists) {
-                document.getElementById("attendanceHoursValue").textContent = hoursData.hours || "--";
-                document.getElementById("attendanceCategoryValue").textContent = hoursData.category || "--";
+                document.getElementById("attendanceHoursValue").textContent = bannerHoursText(hoursData) || "--";
+                document.getElementById("attendanceCategoryValue").textContent = bannerCategoryText(hoursData) || "--";
               } else {
                 document.getElementById("attendanceHoursValue").textContent = "Not set";
                 document.getElementById("attendanceCategoryValue").textContent = "Not set";

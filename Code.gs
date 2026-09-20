@@ -801,7 +801,8 @@ function getStudentList(classSection, date) {
           Student_Section: studentData[i][sectionCol],
           Date_of_Joining: dateOfJoining ? dateOfJoining.toLocaleDateString('en-CA') : null,
           attendanceStatus: 'Not marked',
-          Hours: null
+          Hours: null,
+          Category: null
         });
       }
     }
@@ -837,6 +838,8 @@ function getStudentList(classSection, date) {
             if (hrsIdx !== undefined) {
               const hrsVal = attendanceData[j][hrsIdx];
               studentsMap.get(stdId).Hours = (hrsVal === '' || hrsVal === null || hrsVal === undefined) ? null : hrsVal;
+                          const catIdx = attendanceHeaderMap.get('Category');
+            if (catIdx !== undefined) studentsMap.get(stdId).Category = attendanceData[j][catIdx] || null;
             }
           }
         }
@@ -1156,12 +1159,17 @@ Logger.log(`Found ${existingRecordsByStudentDate.size} existing NORMAL records f
             const desiredHours = (record.Hours !== undefined && record.Hours !== '' && record.Hours !== null)
               ? record.Hours
               : hoursCheck.hours;
+              const dayItems = parseCategoryBreakdown_(hoursCheck.category);
+            const desiredCategory = dayItems
+              ? resolveStudentCategory_(dayItems, hoursCheck.category, hoursCheck.hours, desiredHours, record.Category)
+              : hoursCheck.category;
 
             if (existing) {
               // ---- UPDATE existing row ----
               const existingHours = existing.data[hoursCol];
               const hoursDiff = String(existingHours) !== String(desiredHours);
-              if (existing.currentStatus !== record.Status || hoursDiff) {
+              const catDiff = !!dayItems && String(existing.data[categoryCol]) !== String(desiredCategory);
+              if (existing.currentStatus !== record.Status || hoursDiff || catDiff) {
                 const updatedRow = [...existing.data]; // shallow copy
                 updatedRow[headerMap.get('Status')]      = record.Status;
                 updatedRow[headerMap.get('Timestamp')]   = new Date().toLocaleString();
@@ -1177,7 +1185,7 @@ Logger.log(`Found ${existingRecordsByStudentDate.size} existing NORMAL records f
 
                                 // NEW: write Hours & Category
                                 updatedRow[hoursCol] = desiredHours;
-                updatedRow[categoryCol] = hoursCheck.category;
+                updatedRow[categoryCol] = desiredCategory;
                 if (recIdCol !== undefined) updatedRow[recIdCol] = recId;
                 
                 // ========================================================
@@ -1223,7 +1231,7 @@ if (attendanceTypeCol !== undefined) {
 
               // NEW: write Hours & Category
                             newRow[hoursCol] = desiredHours;
-              newRow[categoryCol] = hoursCheck.category;
+              newRow[categoryCol] = desiredCategory;
               if (recIdCol !== undefined) newRow[recIdCol] = recId;
 
               // ========================================================
@@ -1870,6 +1878,10 @@ function setDailyHours(entries, attendanceType = 'normal', recId = '') {
     const newRows = [];
     
     entries.forEach(entry => {
+            const bd_ = parseCategoryBreakdown_(entry.category);
+      if (bd_ && Math.abs(sumBreakdown_(bd_) - Number(entry.hours)) > 0.001) {
+        throw new Error('Category hours breakup is not equal to the total Hours defined.');
+      }
       const targetDate = new Date(entry.date).toLocaleDateString('en-CA');
       let found = false;
       
@@ -2213,10 +2225,20 @@ function getOrCreateBatchHoursLogSheet_() {
   return sheet;
 }
 
+// blank ya "normal" (chhota/bara koi bhi) = Normal attendance
+function isNormalType_(v) {
+  const t = String(v || '').trim().toLowerCase();
+  return t === '' || t === 'normal';
+}
+
 function updateBatchHours(date, classSection, category, hours, username, recId = '') {
   const lock = LockService.getScriptLock();
   
   try {
+    const bd_ = parseCategoryBreakdown_(category);
+    if (bd_ && Math.abs(sumBreakdown_(bd_) - Number(hours)) > 0.001) {
+      return { success: false, message: 'Category hours breakup is not equal to the total Hours defined.' };
+    }
     if (!lock.tryLock(10000)) {
       return { success: false, message: 'Unable to acquire lock. Please try again.' };
     }
@@ -2226,6 +2248,7 @@ function updateBatchHours(date, classSection, category, hours, username, recId =
     if (!hoursSheet) throw new Error('Daily_Hours_Setup sheet not found');
     
     const hoursData = hoursSheet.getDataRange().getValues();
+    const hoursTypeCol = hoursData[0].indexOf('Attendance_Type');
     const targetDate = new Date(date).toLocaleDateString('en-CA');
     let updatedHoursSetup = false;
     const now = new Date().toLocaleString();
@@ -2235,7 +2258,8 @@ function updateBatchHours(date, classSection, category, hours, username, recId =
     // Update or create entry in Daily_Hours_Setup
     for (let i = 1; i < hoursData.length; i++) {
       const rowDate = new Date(hoursData[i][0]).toLocaleDateString('en-CA');
-      if (rowDate === targetDate && hoursData[i][1] === classSection) {
+      if (rowDate === targetDate && hoursData[i][1] === classSection &&
+    (hoursTypeCol === -1 || isNormalType_(hoursData[i][hoursTypeCol]))) {
         oldCategory = hoursData[i][2];
         oldHours = hoursData[i][3];
         hoursSheet.getRange(i + 1, 3).setValue(category); // Category
@@ -2262,7 +2286,8 @@ function updateBatchHours(date, classSection, category, hours, username, recId =
     const classSectionCol = headers.indexOf('Class_Section');
     const hoursCol = headers.indexOf('Hours');
     const categoryCol = headers.indexOf('Category');
-    
+    const attTypeCol = headers.indexOf('Attendance_Type');
+
     if (dateCol === -1 || classSectionCol === -1 || hoursCol === -1 || categoryCol === -1) {
       return { success: false, message: 'Required columns not found in attendance sheet.' };
     }
@@ -2271,7 +2296,8 @@ function updateBatchHours(date, classSection, category, hours, username, recId =
     
     for (let i = 1; i < attendanceData.length; i++) {
       const rowDate = new Date(attendanceData[i][dateCol]).toLocaleDateString('en-CA');
-      if (rowDate === targetDate && attendanceData[i][classSectionCol] === classSection) {
+      if (rowDate === targetDate && attendanceData[i][classSectionCol] === classSection &&
+    (attTypeCol === -1 || isNormalType_(attendanceData[i][attTypeCol]))) {
         attendanceSheet.getRange(i + 1, hoursCol + 1).setValue(hours);
         attendanceSheet.getRange(i + 1, categoryCol + 1).setValue(category);
         updatedCount++;
@@ -2303,6 +2329,45 @@ function updateBatchHours(date, classSection, category, hours, username, recId =
   }
 }
 
+function parseCategoryBreakdown_(str) {          
+  const s = String(str || '');
+  if (s.indexOf(' + ') === -1) return null;
+  const items = [];
+  for (const part of s.split(' + ')) {
+    const m = part.trim().match(/^(.+) \((\d+(?:\.\d+)?)\)$/);
+    if (!m) return null;
+    items.push({ name: m[1], hours: Number(m[2]) });
+  }
+  return items;
+}
+function formatCategoryBreakdown_(items) {          // 1 item = sadi category, 2+ = "A (1) + B (2)"
+  if (items.length === 1) return items[0].name;
+  return items.map(i => `${i.name} (${Number(i.hours)})`).join(' + ');
+}
+function sumBreakdown_(items) { return items.reduce((a, i) => a + i.hours, 0); }
+function splitHoursByRatio_(items, studentHours) {  // din ke ratio se 0.25 ke step mein baanto
+  // largest-remainder split in quarter-hour units, so the parts always add up exactly
+  const q = 0.25, dayTotal = sumBreakdown_(items);
+  const exact = items.map(i => (studentHours * i.hours / dayTotal) / q);
+  const out = exact.map(Math.floor);
+  let left = Math.round(studentHours / q) - out.reduce((a, b) => a + b, 0);
+  const order = exact.map((_, k) => k).sort((a, b) => (exact[b] - out[b]) - (exact[a] - out[a]));
+  for (let k = 0; left > 0; k = (k + 1) % order.length) { out[order[k]]++; left--; }
+  return items.map((i, k) => ({ name: i.name, hours: out[k] * q })).filter(i => i.hours > 0);
+}
+function resolveStudentCategory_(dayItems, dayCategory, dayHours, studentHours, sentCategory) {
+  const sh = Number(studentHours);
+  if (!(sh > 0) || Math.abs(sh - Number(dayHours)) < 0.001) return dayCategory;
+  const sent = parseCategoryBreakdown_(sentCategory);
+  if (sent && sent.every(s => dayItems.some(d => d.name === s.name && s.hours <= d.hours)) &&
+      Math.abs(sumBreakdown_(sent) - sh) < 0.001) return formatCategoryBreakdown_(sent);
+  if (sentCategory && !sent) {                       // sirf ek category
+    const d = dayItems.find(i => i.name === sentCategory);
+    if (d && sh <= d.hours) return sentCategory;
+  }
+  return formatCategoryBreakdown_(splitHoursByRatio_(dayItems, sh));
+}
+
 
 // NEW: Extend getUserPermissions to include canSetupHours
 // UPDATE THIS EXISTING FUNCTION (replace it completely):
@@ -2311,6 +2376,7 @@ function getUserPermissions(username) {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('User_Permissions');
     if (!sheet) throw new Error('User_Permissions sheet not found');
     const data = sheet.getDataRange().getValues();
+    const mcCol = data[0].indexOf('canMultiCategory');
     for (let i = 1; i < data.length; i++) {
       if (data[i][0] === username) {
         return {
@@ -2323,7 +2389,8 @@ function getUserPermissions(username) {
           canDownloadAllReports: data[i][7] === 'TRUE' || data[i][7] === true,
           canMarkEpisodic: data[i][8] === 'TRUE' || data[i][8] === true,
           canManageEpisodicEvents: data[i][10] === 'TRUE' || data[i][10] === true,
-          canEditStudentHours: data[i][11] === 'TRUE' || data[i][11] === true
+          canEditStudentHours: data[i][11] === 'TRUE' || data[i][11] === true,
+          canMultiCategory: mcCol !== -1 && (data[i][mcCol] === 'TRUE' || data[i][mcCol] === true)
         };
       }
     }
@@ -2337,7 +2404,8 @@ function getUserPermissions(username) {
       canDownloadAllReports: false,
       canMarkEpisodic: false,
       canManageEpisodicEvents: false,
-      canEditStudentHours: false
+      canEditStudentHours: false,
+      canMultiCategory: false
     };
   } catch (e) {
     Logger.log('Error in getUserPermissions: ' + e.message);
