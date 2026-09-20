@@ -2063,6 +2063,19 @@
   -moz-appearance: textfield;
 }
 
+/* Multi-category steppers (canMultiCategory): one row per category */
+.student-multi-hours-control { display: inline-flex; flex-direction: column; gap: 2px; margin-left: 4px; }
+.student-cat-row { display: inline-flex; align-items: center; gap: 3px; }
+.student-cat-name { font-size: 11px; min-width: 60px; }
+@media (max-width: 640px) {
+  /* name + P/A/L on the first line, the category steppers on their own full-width line below */
+  .attn-page .member-item.multi { flex-wrap: wrap; }
+  .attn-page .member-item.multi .member-info { flex: 1 1 0; min-width: 90px; }
+  .member-item.multi .student-multi-hours-control { flex: 1 0 100%; display: flex; flex-direction: column; gap: 6px; margin-left: 0; padding-top: 8px; border-top: 1px dashed var(--gray-200); width: 100%; }
+  .member-item.multi .student-cat-row { display: flex; justify-content: space-between; width: 100%; }
+  .member-item.multi .student-cat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
 /* Compact rows */
 .attn-page .member-item {
   flex-direction: row; align-items: center; flex-wrap: nowrap;
@@ -4482,8 +4495,8 @@ function buildMultiHoursControl(dayItems, s) {
   if (prev) vals = dayItems.map(i => { const p = prev.find(x => x.name === i.name); return p ? Math.min(i.hours, p.hours) : 0; });
   else if (s.Category && Number(s.Hours) > 0 && dayItems.some(i => i.name === s.Category))
     vals = dayItems.map(i => i.name === s.Category ? Math.min(i.hours, Number(s.Hours)) : 0);
-  return `<div class="student-multi-hours-control" style="display:inline-flex;flex-direction:column;gap:2px;margin-left:4px;">` +
-    dayItems.map((i, k) => `<div class="student-cat-row" data-cat="${escapeHtml(i.name)}" data-max="${i.hours}" style="display:inline-flex;align-items:center;gap:3px;"><span style="font-size:11px;min-width:60px;">${escapeHtml(i.name)}</span><button type="button" class="hours-step hours-minus">&minus;</button><input type="number" class="student-cat-input" value="${vals[k]}" min="0" max="${i.hours}" step="0.25" readonly disabled style="width:48px;text-align:center;padding:3px;border:1px solid var(--gray-200);border-radius:7px;background:var(--card-bg);color:var(--gray-900);font-weight:600;font-size:12px;"><button type="button" class="hours-step hours-plus">+</button></div>`).join('') + `</div>`;
+  return `<div class="student-multi-hours-control">` +
+    dayItems.map((i, k) => `<div class="student-cat-row" data-cat="${escapeHtml(i.name)}" data-max="${i.hours}"><span class="student-cat-name">${escapeHtml(i.name)}</span><button type="button" class="hours-step hours-minus">&minus;</button><input type="number" class="student-cat-input" value="${vals[k]}" min="0" max="${i.hours}" step="0.25" readonly disabled style="width:48px;text-align:center;padding:3px;border:1px solid var(--gray-200);border-radius:7px;background:var(--card-bg);color:var(--gray-900);font-weight:600;font-size:12px;"><button type="button" class="hours-step hours-plus">+</button></div>`).join('') + `</div>`;
 }
 function setMultiHoursEnabled(ctrl, enabled) {
   ctrl.querySelectorAll("input,button").forEach(el => el.disabled = !enabled);
@@ -4535,7 +4548,7 @@ function renderStudentList(students, listId, prefix) {
   const dayItems = dayBreakdown();
   students.forEach(s => { 
     let li = document.createElement("li"); 
-    li.className = "member-item"; 
+    li.className = "member-item" + (showHours && dayItems ? " multi" : ""); 
     let hoursHtml = "";
       if (showHours) {
       const ch = Number(currentClassHours);
@@ -4549,7 +4562,7 @@ function renderStudentList(students, listId, prefix) {
         <button type="button" class="hours-step hours-plus">+</button>
       </div>`;
     }
-    li.innerHTML = `<div class="member-info"><div class="member-name">${escapeHtml(s.Student_Name)}</div><div class="member-dept">${s.Student_Class}-${s.Student_Section}</div><div class="member-ids">${s.Std_ID} | ${s.Barcode_ID}</div></div><div class="attendance-buttons" id="${prefix}_${s.Std_ID}"><button class="attendance-btn present-btn ${s.attendanceStatus === 'Present' ? 'active present' : ''}" data-status="Present" title="Present">P</button><button class="attendance-btn absent-btn ${s.attendanceStatus === 'Absent' ? 'active absent' : ''}" data-status="Absent" title="Absent">A</button><button class="attendance-btn leave-btn ${s.attendanceStatus === 'Leave' ? 'active leave' : ''}" data-status="Leave" title="Leave">L</button>${hoursHtml}</div>`; 
+    li.innerHTML = `<div class="member-info"><div class="member-name">${escapeHtml(s.Student_Name)}</div><div class="member-dept">${s.Student_Class}-${s.Student_Section}</div><div class="member-ids">${s.Std_ID} | ${s.Barcode_ID}</div></div><div class="attendance-buttons" id="${prefix}_${s.Std_ID}"><button class="attendance-btn present-btn ${s.attendanceStatus === 'Present' ? 'active present' : ''}" data-status="Present" title="Present">P</button><button class="attendance-btn absent-btn ${s.attendanceStatus === 'Absent' ? 'active absent' : ''}" data-status="Absent" title="Absent">A</button><button class="attendance-btn leave-btn ${s.attendanceStatus === 'Leave' ? 'active leave' : ''}" data-status="Leave" title="Leave">L</button>${dayItems ? '' : hoursHtml}</div>${dayItems ? hoursHtml : ''}`; 
     container.appendChild(li); 
   }); 
   bindAttendanceButtons(); 
