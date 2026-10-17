@@ -290,7 +290,7 @@ if (userStatus === 'Inactive') {
   throw new Error('User account is inactive. Please contact administrator.');
 }
         
-        // SECOND: Check password
+       // SECOND: Check password
         if (data[i][passwordCol] === password) {
           // THIRD: Sirf UserType 'teacher' wale users hi login kar sakte hain
           const userType = String(data[i][typeCol] || '').trim();
