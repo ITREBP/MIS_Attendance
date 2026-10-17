@@ -2585,6 +2585,23 @@
     <p class="mt-3" style="color:white;" id="loadingMessage">Processing...</p>
     <div class="loading-progress"><div class="loading-progress-fill" id="loadingProgressFill"></div></div>
   </div>
+
+
+<!-- SCANNER LOCK OVERLAY -->
+<div id="scannerLockOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.78); z-index:1500; align-items:center; justify-content:center; flex-direction:column; color:#fff; text-align:center; padding:24px;">
+  <div style="font-size:54px; margin-bottom:14px;">📷</div>
+  <div style="font-size:19px; font-weight:700; margin-bottom:8px;">Scanner is open</div>
+  <div style="font-size:14px; opacity:0.9; max-width:300px; line-height:1.5;">
+    Please scan QR codes in the other window.<br>Close that window to come back here.
+  </div>
+  <button id="scannerReopenBtn" style="margin-top:22px; padding:12px 24px; border-radius:10px; border:none; background:#1a73e8; color:#fff; font-weight:600; font-size:15px; cursor:pointer;">
+    Bring Scanner to Front
+  </button>
+  <button id="scannerForceCloseBtn" style="margin-top:10px; padding:8px 18px; border-radius:10px; border:1px solid rgba(255,255,255,0.35); background:transparent; color:#fff; font-size:13px; cursor:pointer;">
+    Scanner lost — unlock this screen
+  </button>
+</div>
+
   
   <div id="singleHoursSetupPopup" class="password-popup" style="display: none;"><h3><i class="fas fa-clock me-2"></i>Set Hours and Category</h3><p><strong id="setupClassSection"></strong> on <strong id="setupDate"></strong></p><form id="singleHoursForm"><div class="mb-3"><label class="form-label">Category</label><select id="setupCategory" class="form-control" required><option disabled selected>Loading...</option></select></div><div class="mb-3"><label class="form-label">Hours</label><select id="setupHours" class="form-control" required><option disabled selected>Loading...</option></select></div><div id="setupMultiBlock" style="display:none;"><label class="form-label">Categories</label><div id="setupMultiCats" class="mb-2"></div><div id="setupMultiRemaining" class="text-muted mb-3"></div></div><div class="d-flex gap-2"><button type="button" class="btn btn-secondary" onclick="closeSingleHoursSetup()">Cancel</button><button type="submit" class="btn btn-primary">Save & Continue</button></div></form></div>
   <div id="batchHoursUpdatePopup" class="password-popup" style="display: none;"><h3><i class="fas fa-clock me-2"></i>Batch Hours Update</h3><form id="batchHoursUpdateForm"><div class="mb-3"><label>Date</label><input type="date" class="form-control" id="batchUpdateDate" required></div><div class="mb-3"><label>Class Section</label><select class="form-control" id="batchUpdateClassSection" required></select></div><div class="mb-3"><label>New Category</label><select class="form-control" id="batchUpdateHours" required></select></div><div class="mb-3"><label>New Hours</label><select class="form-control" id="batchUpdateCategory" required></select></div><div id="batchUpdateMultiBlock" style="display:none;"><label>Categories</label><div id="batchUpdateMultiCats" class="mb-3"></div></div><div class="d-flex gap-2"><button type="button" class="btn btn-secondary" onclick="closeBatchHoursUpdatePopup()">Cancel</button><button type="submit" class="btn btn-primary">Update Batch Hours</button></div></form></div>
@@ -2641,11 +2658,12 @@ let currentClassHours = 0;
 let currentClassCategory = '';
 let scannedStudents = new Set();
 let isSubmitting = false;
-let prevHtml5QrcodeScanner = null;
-let isPrevScannerPaused = false;
-let prevScanInProgress = false;       // ← Previous scanner lock
-let prevLastScanTime = 0;             // ← ADD THIS - Rate limiting for previous scanner
-let prevLastScannedBarcode = null;    // ← ADD THIS - Rate limiting for previous scanner
+let scannerPopupWin = null;
+//let prevHtml5QrcodeScanner = null;
+//let isPrevScannerPaused = false;
+//let prevScanInProgress = false;       // ← Previous scanner lock
+//let prevLastScanTime = 0;             // ← ADD THIS - Rate limiting for previous scanner
+//let prevLastScannedBarcode = null;    // ← ADD THIS - Rate limiting for previous scanner
 
 
 // =============== EPISODIC ATTENDANCE FUNCTIONS ===============
@@ -3705,8 +3723,9 @@ function getTodayDate() {
 
 function escapeHtml(str) { 
   if (!str) return ""; 
-  return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;'); 
+  return str.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); 
 }
+
 
 function showFeedback(msg, cls, id) { 
   let el = document.getElementById(id); 
@@ -3840,6 +3859,12 @@ function handleLogin(e) {
 function loginSuccess(user) { 
   currentUser = user; 
 
+  // Persist minimal session so accidental refresh doesn't kick us to login
+  try {
+    sessionStorage.setItem("session_user", JSON.stringify(user));
+  } catch (e) {}
+
+
  // ✅ ADD THIS BLOCK - Display REC name in Dashboard title
   const dt = document.getElementById('dashboardTitle');
   if (dt) {
@@ -3923,7 +3948,9 @@ function loginSuccess(user) {
               document.getElementById("loginPage").classList.add("d-none"); 
               handleNavigation("welcomeContainer"); 
               showLoading(false); 
-              setTimeout(() => showPopup("Success", `Welcome ${user.teacherName}!`), 100); 
+              if (!window._isSessionRestore) {
+  setTimeout(() => showPopup("Success", `Welcome ${user.teacherName}!`), 100);
+}
             })
             .getAssignedClassSections(user.username); 
         })
@@ -4882,23 +4909,7 @@ function validateAndMarkPrevBarcodeAttendance() {
   if (!userPermissions.canMarkBarcode) return showPopup("Error", "No permission");
   if (isSubmitting) return showPopup("Warning", "⚠️ Submission in progress. Please wait.");
   
-  if (prevHtml5QrcodeScanner) {
-  (async () => {
-    try {
-      if (prevHtml5QrcodeScanner.isScanning) {
-        await prevHtml5QrcodeScanner.stop();
-      }
-      await prevHtml5QrcodeScanner.clear();
-    } catch(e) {
-      console.warn("Previous scanner cleanup error:", e);
-    }
-  })();
-  prevHtml5QrcodeScanner = null;
-  const readerDiv = document.getElementById("previousQrReader");
-  if (readerDiv) readerDiv.style.display = "none";
-  const toggleBtn = document.getElementById("prevToggleScannerBtn");
-  if (toggleBtn) toggleBtn.textContent = "Show Scanner";
-}
+  
   
   const studentItems = document.querySelectorAll('#prevBarcodeStudentList .member-item');
   const attendanceData = [];
@@ -5083,7 +5094,7 @@ function stayHere() {
       studentData = students;
       renderStudentList(students, "prevBarcodeStudentList", "prevBarcodeAttendanceSelect");
       updatePrevBarcodeDashboard();
-      setTimeout(() => initPrevQrScanner(), 100);
+      
     });
   } else if (page === "episodicAttendancePage") {
     // Reload the episodic student list after submission
@@ -5105,6 +5116,7 @@ function logoutFromSubmission() {
 
 function handleLogout() { 
   currentUser = null; 
+    try { sessionStorage.removeItem("session_user"); } catch (e) {}
   studentData = []; 
   scannedStudents.clear(); 
   isSubmitting = false;
@@ -5112,22 +5124,6 @@ function handleLogout() {
   restoreSavedCredentials();
   handleNavigation("loginPage"); 
   closeAllPopups(); 
-  
-  
-  
-  if (prevHtml5QrcodeScanner) {
-    (async () => {
-      try {
-        if (prevHtml5QrcodeScanner.isScanning) {
-          await prevHtml5QrcodeScanner.stop();
-        }
-        await prevHtml5QrcodeScanner.clear();
-      } catch(e) {
-        console.warn("Previous scanner cleanup error:", e);
-      }
-      prevHtml5QrcodeScanner = null;
-    })();
-  }
 }
 
 // ------------------------------  SUMMARY FUNCTIONS  ------------------------------
@@ -5402,7 +5398,7 @@ function verifyAndShowPreviousDates(mode) {
               document.getElementById("previousBarcodeDate").textContent = date;
               document.getElementById("previousBarcodeClassSection").textContent = currentUser.classSection;
               handleNavigation("previousBarcodeAttendanceContainer");
-              setTimeout(() => initPrevQrScanner(), 100);
+              
             }
             showLoading(false); 
           }).catch(err => {
@@ -5423,172 +5419,12 @@ function verifyAndShowPreviousDates(mode) {
 }
 
 
-function initPrevQrScanner() {
-  // Properly destroy existing scanner FIRST
-  if (prevHtml5QrcodeScanner) {
-    (async () => {
-      try {
-        if (prevHtml5QrcodeScanner.isScanning) {
-          await prevHtml5QrcodeScanner.stop();
-        }
-        await prevHtml5QrcodeScanner.clear();
-      } catch(e) {
-        console.warn("Previous scanner cleanup error:", e);
-      }
-    })();
-    prevHtml5QrcodeScanner = null;
-  }
-  
-  let readerContainer = document.getElementById("previousQrReader");
-  if (readerContainer) {
-    const overlay = readerContainer.querySelector('.qr-overlay');
-    const scanLine = readerContainer.querySelector('.qr-scan-line');
-    readerContainer.innerHTML = '';
-    if (overlay) readerContainer.appendChild(overlay);
-    if (scanLine) readerContainer.appendChild(scanLine);
-  }
-  
-  let cameraSelect = document.getElementById("prevCameraSelect");
-  
-  Html5Qrcode.getCameras().then(cameras => {
-    if (!cameras || cameras.length === 0) {
-      console.warn("No cameras found");
-      return;
-    }
-    
-    cameraSelect.innerHTML = '<option disabled selected>Select Camera</option>';
-    cameras.forEach(cam => {
-      let opt = document.createElement("option");
-      opt.value = cam.id;
-      opt.text = cam.label || `Camera ${cam.id}`;
-      cameraSelect.appendChild(opt);
-    });
-    
-    let preferred = localStorage.getItem("preferredCameraId");
-    let back = cameras.find(c => 
-      c.label.toLowerCase().includes("back") || 
-      c.label.toLowerCase().includes("rear") || 
-      c.id === "camera2 0"
-    );
-    let cameraId = preferred && cameras.find(c => c.id === preferred) ? preferred : (back ? back.id : cameras[0]?.id);
-    if (cameraId) cameraSelect.value = cameraId;
-    
-    prevHtml5QrcodeScanner = new Html5Qrcode("previousQrReader");
-    const config = { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
-    
-    prevHtml5QrcodeScanner.start(cameraId, config, onPrevScanSuccess, onPrevScanError)
-      .catch(err => console.warn("Start error:", err));
-    
-    // FIXED: Camera switch with proper cleanup
-    cameraSelect.onchange = async () => {
-      let newId = cameraSelect.value;
-      if (newId && newId !== cameraId) {
-        localStorage.setItem("preferredCameraId", newId);
-        
-        if (prevHtml5QrcodeScanner) {
-          try {
-            if (prevHtml5QrcodeScanner.isScanning) {
-              await prevHtml5QrcodeScanner.stop();
-            }
-            await prevHtml5QrcodeScanner.clear();
-          } catch(e) {
-            console.warn("Error stopping scanner:", e);
-          }
-          
-          prevHtml5QrcodeScanner = new Html5Qrcode("previousQrReader");
-          try {
-            await prevHtml5QrcodeScanner.start(newId, config, onPrevScanSuccess, onPrevScanError);
-            cameraId = newId;
-          } catch(err) {
-            console.warn("Start error:", err);
-            if (cameraId) {
-              prevHtml5QrcodeScanner = new Html5Qrcode("previousQrReader");
-              await prevHtml5QrcodeScanner.start(cameraId, config, onPrevScanSuccess, onPrevScanError);
-            }
-          }
-        }
-      }
-    };
-  }).catch(err => console.warn("Camera error:", err));
-  
-  let pauseBtn = document.getElementById("prevPauseScannerBtn");
-  let toggleBtn = document.getElementById("prevToggleScannerBtn");
-  let readerDiv = document.getElementById("previousQrReader");
-  let isPrevScannerVisible = true;
-  
-  pauseBtn.onclick = () => {
-    isPrevScannerPaused = !isPrevScannerPaused;
-    pauseBtn.textContent = isPrevScannerPaused ? "Resume Scanner" : "Pause Scanner";
-  };
-  
-  // FIXED: Toggle button - stop but DON'T clear when hiding
-  toggleBtn.onclick = async () => {
-    if (readerDiv.style.display === "none") {
-      readerDiv.style.display = "block";
-      toggleBtn.textContent = "Hide Scanner";
-      isPrevScannerVisible = true;
-      
-      if (prevHtml5QrcodeScanner && !prevHtml5QrcodeScanner.isScanning && !isPrevScannerPaused) {
-        const cameraId = document.getElementById("prevCameraSelect")?.value;
-        if (cameraId) {
-          const config = { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
-          try {
-            await prevHtml5QrcodeScanner.start(cameraId, config, onPrevScanSuccess, onPrevScanError);
-          } catch(e) {
-            console.warn("Restart error:", e);
-          }
-        }
-      } else if (!prevHtml5QrcodeScanner) {
-        initPrevQrScanner();
-      }
-    } else {
-      readerDiv.style.display = "none";
-      toggleBtn.textContent = "Show Scanner";
-      isPrevScannerVisible = false;
-      
-      if (prevHtml5QrcodeScanner && prevHtml5QrcodeScanner.isScanning) {
-        try {
-          await prevHtml5QrcodeScanner.stop();
-        } catch(e) {
-          console.warn("Stop error:", e);
-        }
-      }
-    }
-  };
-  
-  readerDiv.style.display = "block";
-}
 
 
 
-async function stopPrevScanner() {
-  if (prevHtml5QrcodeScanner) {
-    try {
-      if (prevHtml5QrcodeScanner.isScanning) {
-        await prevHtml5QrcodeScanner.stop();
-      }
-      await prevHtml5QrcodeScanner.clear();
-    } catch(e) {
-      console.warn("Previous scanner cleanup error:", e);
-    }
-    prevHtml5QrcodeScanner = null;
-  }
-  // Reset UI state
-  const readerDiv = document.getElementById("previousQrReader");
-  if (readerDiv) readerDiv.style.display = "block";
-  const toggleBtn = document.getElementById("prevToggleScannerBtn");
-  if (toggleBtn) toggleBtn.textContent = "Hide Scanner";
-  isPrevScannerPaused = false;
-}
 
 // REPLACE the existing handleNavigation function with this:
 function handleNavigation(id) { 
-  // Stop scanners BEFORE navigating away from QR pages
-  const currentPage = getCurrentVisiblePage();
-  
-  if (currentPage === "previousBarcodeAttendanceContainer") {
-    stopPrevScanner(); // Stop previous scanner when leaving
-  }
   
   document.querySelectorAll(".card").forEach(c => c.classList.add("d-none")); 
   document.getElementById(id).classList.remove("d-none"); 
@@ -5614,96 +5450,85 @@ function triggerConfetti() {
 }
 
 
-function onPrevScanSuccess(decodedText) {
-  // CHECK 1: Is scanner paused?
-  if (isPrevScannerPaused) return;
-  
-  // CHECK 2: SCAN LOCK - Is another scan already being processed?
-  if (prevScanInProgress) {
-    return;
-  }
-  
-  // CHECK 3: Rate limiting for same barcode (300ms is enough)
-  const now = Date.now();
-  if (now - prevLastScanTime < 300 && prevLastScannedBarcode === decodedText) {
-    // Same barcode scanned too quickly - ignore
-    return;
-  }
-  
-  // Update last scan info
-  prevLastScanTime = now;
-  prevLastScannedBarcode = decodedText;
-  
-  // ACQUIRE LOCK - Prevent other scans from starting
-  prevScanInProgress = true;
-  
-  // Process the scan
-  let student = studentData.find(s => s.Barcode_ID === decodedText);
-  if (student) {
-    let btnGrp = document.getElementById(`prevBarcodeAttendanceSelect_${student.Std_ID}`);
-    if (btnGrp) {
-      let presentBtn = btnGrp.querySelector(".present-btn");
-      if (presentBtn && !presentBtn.classList.contains("active")) {
-        presentBtn.click();
-        const listItem = btnGrp.closest('.member-item');
-        if (listItem) {
-          listItem.classList.add('scanned');
-          setTimeout(() => listItem.classList.remove('scanned'), 500);
-        }
-        try {
-          triggerConfetti();
-          playBeep();
-        } catch(e) {}
-        showFeedback(`✓ ${student.Student_Name} marked Present`, "alert-success", "prevBarcodeAttendanceFeedback");
-      } else {
-        showFeedback(`⚠️ ${student.Student_Name} already marked Present`, "alert-info", "prevBarcodeAttendanceFeedback");
-      }
-    }
-  } else {
-    let fb = document.getElementById("prevBarcodeAttendanceFeedback") || (() => { 
-      let d = document.createElement("div"); 
-      d.id = "prevBarcodeAttendanceFeedback"; 
-      d.className = "alert alert-danger mt-2"; 
-      document.querySelector("#previousBarcodeAttendanceContainer .card-body").prepend(d); 
-      return d; 
-    })();
-    fb.textContent = "❌ Invalid barcode";
-    fb.classList.remove("d-none");
-    setTimeout(() => fb.classList.add("d-none"), 1500);
-  }
-  
-  // RELEASE LOCK - Allow next scan after a short delay
-  setTimeout(() => {
-    prevScanInProgress = false;
-  }, 300);
-}
 
-function onPrevScanError(err) { console.warn(err); }
+
+//let scannerPopupWin = null;
+let scannerLockPoll = null;
 
 function openBarcodeScannerPopup() {
-  checkPopupBlocked(); // Show warning if popups blocked
-  // First, properly stop and clean up the main scanner
-  
-  
-  // Open popup with a slight delay to ensure cleanup
-  setTimeout(() => {
-    let win = window.open("", "Scanner", "width=480,height=640,toolbar=no,menubar=no,location=no");
-    if (!win) {
+  // If scanner is already open, just bring it forward
+  if (scannerPopupWin && !scannerPopupWin.closed) {
+    try { scannerPopupWin.focus(); } catch (e) {}
+    return;
+  }
+
+  checkPopupBlocked(); // Warn if popups are blocked
+
+  showLoading(true, "Opening scanner...");
+  google.script.run.withSuccessHandler(html => {
+    showLoading(false);
+
+    scannerPopupWin = window.open("", "Scanner",
+      "width=480,height=640,toolbar=no,menubar=no,location=no");
+    if (!scannerPopupWin) {
       showPopup("Error", "Popup blocked! Please allow popups for this site.");
       return;
     }
-    
-    showLoading(true, "Opening scanner...");
-    google.script.run.withSuccessHandler(html => {
-      showLoading(false);
-      win.document.write(html);
-      win.document.close();
-    }).withFailureHandler(err => {
-      showLoading(false);
-      showPopup("Error", "Failed to open scanner: " + err.message);
-    }).getBarcodeScannerHTML();
-  }, 300);
+
+    scannerPopupWin.document.write(html);
+    scannerPopupWin.document.close();
+    try { scannerPopupWin.focus(); } catch (e) {}
+
+    lockScannerParentUI(scannerPopupWin);   // ← locks parent screen
+  }).withFailureHandler(err => {
+    showLoading(false);
+    showPopup("Error", "Failed to open scanner: " + err.message);
+    try { if (scannerPopupWin) scannerPopupWin.close(); } catch (e) {}
+    scannerPopupWin = null;
+  }).getBarcodeScannerHTML();
 }
+
+function lockScannerParentUI(win) {
+  const ov = document.getElementById("scannerLockOverlay");
+  if (ov) ov.style.display = "flex";
+  if (scannerLockPoll) clearInterval(scannerLockPoll);
+  scannerLockPoll = setInterval(() => {
+    if (!win || win.closed) unlockScannerParentUI();
+  }, 800);
+}
+
+function unlockScannerParentUI() {
+  const ov = document.getElementById("scannerLockOverlay");
+  if (ov) ov.style.display = "none";
+  if (scannerLockPoll) { clearInterval(scannerLockPoll); scannerLockPoll = null; }
+  scannerPopupWin = null;
+}
+
+// Scanner overlay button handlers
+document.getElementById("scannerReopenBtn")?.addEventListener("click", () => {
+  if (scannerPopupWin && !scannerPopupWin.closed) {
+    try { scannerPopupWin.focus(); } catch (e) {}
+  } else {
+    unlockScannerParentUI();
+  }
+});
+document.getElementById("scannerForceCloseBtn")?.addEventListener("click", () => {
+  if (scannerPopupWin && !scannerPopupWin.closed) {
+    try { scannerPopupWin.close(); } catch (e) {}
+  }
+  unlockScannerParentUI();
+});
+
+// Warn before refresh / close / back while a session is active or scanner is open
+window.addEventListener("beforeunload", function(e) {
+  const scannerOpen = scannerPopupWin && !scannerPopupWin.closed;
+  const loggedIn = currentUser && currentUser.username;
+  if (scannerOpen || loggedIn) {
+    e.preventDefault();
+    e.returnValue = "";   // browsers show their own "Leave site?" prompt
+  }
+});
+
 
 function setupBarcodeMessageListener() { 
   window.removeEventListener("message", handleBarcodeMessage); 
@@ -5711,6 +5536,10 @@ function setupBarcodeMessageListener() {
 }
 
 function handleBarcodeMessage(event) { 
+
+if (event.data?.type === "SCANNER_CLOSED") { unlockScannerParentUI(); return; }
+  
+
   // NEW: page ke hisab se sahi prefix chunein
   const isPrevPage = getCurrentVisiblePage() === "previousBarcodeAttendanceContainer";
   const prefix = isPrevPage ? "prevBarcodeAttendanceSelect_" : "barcodeAttendanceSelect_";
@@ -6714,6 +6543,35 @@ document.addEventListener("DOMContentLoaded", () => {
     setupEpisodicEventListeners();
   }, 500);
 });
+
+// Restore session after accidental refresh
+function tryRestoreSession() {
+  let saved = null;
+  try { saved = sessionStorage.getItem("session_user"); } catch (e) {}
+  if (!saved) return false;
+
+  let user;
+  try { user = JSON.parse(saved); } catch (e) { return false; }
+  if (!user || !user.username) return false;
+
+  // Re-run the exact login-success flow so schedule / permissions / class sections reload
+  try {
+    window._isSessionRestore = true;
+    loginSuccess(user);
+  } catch (e) {
+    try { sessionStorage.removeItem("session_user"); } catch (_) {}
+    return false;
+  } finally {
+    window._isSessionRestore = false;
+  }
+  return true;
+}
+
+window.addEventListener("load", () => {
+  // Give DOMContentLoaded a moment to finish setup, then restore if a session exists
+  setTimeout(() => { tryRestoreSession(); }, 100);
+});
+
 
 // DEFINE EVENT LISTENERS SEPARATELY (OUTSIDE DOMContentLoaded)
 function setupEpisodicEventListeners() {

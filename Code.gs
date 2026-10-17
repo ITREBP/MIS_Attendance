@@ -3681,7 +3681,7 @@ function getBarcodeScannerHTML() {
     
     .info-panel {
       position: absolute;
-      bottom: 20px;
+      bottom: 95px;
       left: 20px;
       right: 20px;
       background: rgba(0,0,0,0.85);
@@ -3753,7 +3753,7 @@ function getBarcodeScannerHTML() {
     
     .last-scanned {
       position: absolute;
-      bottom: 90px;
+      bottom: 200px;
       left: 20px;
       right: 20px;
       background: rgba(0,0,0,0.85);
@@ -3784,7 +3784,11 @@ function getBarcodeScannerHTML() {
   </style>
 </head>
 <body>
-  <button class="close-btn" onclick="window.close()">✕</button>
+  
+<button onclick="window.close()" style="position:absolute; bottom:20px; left:20px; right:20px; height:60px; border:none; border-radius:14px; background:#2e7d32; color:#fff; font-size:18px; font-weight:700; z-index:40; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.4);">✓ DONE — CLOSE SCANNER</button>
+<button onclick="window.close()" style="position:absolute; top:16px; right:16px; width:44px; height:44px; border-radius:50%; background:#ea4335; color:#fff; font-size:22px; border:none; z-index:40; cursor:pointer;">✕</button>
+
+
 <button class="camera-switch-btn" id="switchCameraBtn" style="position: absolute; bottom: 90px; right: 20px; background: #2196F3; color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 30; box-shadow: 0 2px 10px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;">
   🔄
 </button>
@@ -3814,6 +3818,14 @@ function getBarcodeScannerHTML() {
 </div>
 
   <script>
+
+// If the parent page that launched us is gone, close this scanner
+setInterval(function() {
+  if (!window.opener || window.opener.closed) {
+    try { window.close(); } catch (e) {}
+  }
+}, 2000);
+
     let html5QrCode = null;
 let isProcessing = false;
 let lastScanTime = 0;
@@ -4180,13 +4192,18 @@ initScanner();
     });
 
     // Handle cleanup on page unload
-    window.addEventListener('beforeunload', async () => {
-      if (html5QrCode && html5QrCode.isScanning) {
-        try {
-          await html5QrCode.stop();
-        } catch(e) {}
-      }
-    });
+   window.addEventListener('beforeunload', async () => {
+  try {
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage({ type: "SCANNER_CLOSED" }, "*");
+    }
+  } catch (e) {}
+  if (html5QrCode && html5QrCode.isScanning) {
+    try {
+      await html5QrCode.stop();
+    } catch(e) {}
+  }
+});
   </script>
 </body>
 </html>
