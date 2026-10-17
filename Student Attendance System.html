@@ -2098,6 +2098,79 @@
 .attn-page .attn-top .text-center { font-size: 13px; }
 .attn-page .attn-search { padding: 8px 12px; font-size: 13px; }
 
+
+/* ===== CONNECTION PILL ===== */
+.connection-pill {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top));
+  right: 10px;
+  z-index: 2400;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1a2c3e;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  cursor: default;
+  user-select: none;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.connection-pill .connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9e9e9e;
+  flex: 0 0 auto;
+  transition: background 0.2s;
+}
+
+/* Connected (green) */
+.connection-pill.online {
+  background: rgba(232, 245, 233, 0.95);
+  color: #1b5e20;
+  border-color: rgba(46, 125, 50, 0.25);
+}
+.connection-pill.online .connection-dot { background: #2e7d32; }
+
+/* Offline (red) */
+.connection-pill.offline {
+  background: rgba(255, 235, 238, 0.95);
+  color: #b71c1c;
+  border-color: rgba(198, 40, 40, 0.25);
+}
+.connection-pill.offline .connection-dot { background: #c62828; }
+
+/* Dark theme variants */
+[data-theme="dark"] .connection-pill {
+  background: rgba(30, 41, 59, 0.92);
+  color: #f1f5f9;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+[data-theme="dark"] .connection-pill.online {
+  background: rgba(20, 83, 45, 0.85);
+  color: #d1fae5;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+[data-theme="dark"] .connection-pill.online .connection-dot { background: #10b981; }
+[data-theme="dark"] .connection-pill.offline {
+  background: rgba(127, 29, 29, 0.85);
+  color: #fee2e2;
+  border-color: rgba(248, 113, 113, 0.35);
+}
+[data-theme="dark"] .connection-pill.offline .connection-dot { background: #ef5350; }
+
+/* Hide while the login page is visible — no point showing "Connected" before a user logs in */
+body:has(#loginPage:not(.d-none)) .connection-pill { display: none; }
+
   </style>
 </head>
 <body>
@@ -2579,6 +2652,19 @@
   <div class="password-popup" id="passwordPopup"><h3>Enter Password</h3><form id="passwordForm"><input type="password" class="form-control mb-3" id="previousPassword" placeholder="Password" required><div class="d-flex gap-2"><button type="button" class="btn btn-secondary" onclick="closePasswordPopup()">Cancel</button><button type="submit" class="btn btn-primary">Submit</button></div></form></div>
   <div class="submission-popup" id="submissionPopup"><h3>Attendance Submitted</h3><p>What would you like to do next?</p><div class="d-flex gap-2 justify-center mt-3"><button class="btn btn-primary" onclick="stayHere()">Stay Here</button><button class="btn btn-secondary" onclick="goHome()">Go Home</button><button class="btn btn-danger" onclick="logoutFromSubmission()">Logout</button></div></div>
   
+
+<!-- OFFLINE BANNER -->
+<div id="offlineBanner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:2500; background:#c62828; color:#fff; text-align:center; padding:10px 16px; font-size:14px; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,0.3); padding-top: calc(10px + env(safe-area-inset-top));">
+  ⚠️ No internet connection — attendance won't be saved
+</div>
+
+
+<!-- CONNECTION PILL -->
+<div id="connectionPill" class="connection-pill online" title="Internet connection">
+  <span class="connection-dot"></span>
+  <span class="connection-label">Connected</span>
+</div>
+
   <!-- LOADING OVERLAY -->
   <div class="loading-overlay" id="loadingOverlay">
     <div class="spinner"></div>
@@ -2658,6 +2744,7 @@ let currentClassHours = 0;
 let currentClassCategory = '';
 let scannedStudents = new Set();
 let isSubmitting = false;
+let isSubmittingEpisodic = false;
 let scannerPopupWin = null;
 //let prevHtml5QrcodeScanner = null;
 //let isPrevScannerPaused = false;
@@ -3172,6 +3259,8 @@ function filterEpisodicStudentList() {
 }
 
 function submitEpisodicAttendance() {
+  if (!isOnlineOrWarn()) return;
+  if (isSubmittingEpisodic) return showPopup("Warning", "⚠️ Submission in progress. Please wait.");
   const classSection = currentUser.classSection;
   const date = document.getElementById("episodicDate").value;
 
@@ -3211,11 +3300,13 @@ function submitEpisodicAttendance() {
   const presentCount = studentStatuses.filter(s => s.status === 'Present').length;
   const notApplicableCount = studentStatuses.filter(s => s.status === 'Not Applicable').length;
 
-  showLoading(true, `Saving episodic attendance (${presentCount} Present, ${notApplicableCount} Not Applicable)...`);
+    showLoading(true, `Saving episodic attendance (${presentCount} Present, ${notApplicableCount} Not Applicable)...`);
+  isSubmittingEpisodic = true;
 
   google.script.run
     .withSuccessHandler(result => {
       showLoading(false);
+      isSubmittingEpisodic = false;
       if (result && result.success) {
         showPopupThen("Success", `Episodic attendance saved!\n\nPresent: ${result.presentCount}\nNot Applicable: ${result.notApplicableCount}`, showSubmissionPopup);
       } else {
@@ -3224,6 +3315,7 @@ function submitEpisodicAttendance() {
     })
     .withFailureHandler(err => {
       showLoading(false);
+      isSubmittingEpisodic = false;
       let errorMsg = err.message;
       if (errorMsg.includes('does not have permission')) {
         errorMsg = 'You do not have permission to mark episodic attendance.';
@@ -3843,17 +3935,26 @@ async function submitInBatches(attendanceData, classSection, date, username, isB
 // ------------------------------  LOGIN  ------------------------------
 function handleLogin(e) { 
   e.preventDefault(); 
+  if (!isOnlineOrWarn()) return;
   let username = document.getElementById("username").value, password = document.getElementById("password").value; 
   showLoading(true, "Authenticating..."); 
-  google.script.run.withSuccessHandler(user => { 
+
+  runWithTimeout(20000, (onSuccess, onFailure) => {
+    google.script.run
+      .withSuccessHandler(onSuccess)
+      .withFailureHandler(onFailure)
+      .login(username, password);
+  })
+  .then(user => {
     showLoading(false); 
     if (user && user.blocked) showPopup("Access Denied", user.message);
     else if (user) loginSuccess(user); 
     else showPopup("Error", "Invalid credentials"); 
-  }).withFailureHandler(err => { 
-    showLoading(false); 
-    showPopup("Error", err.message); 
-  }).login(username, password); 
+  })
+  .catch(err => {
+    showLoading(false);
+    showPopup("Error", err.message || "Could not connect. Please try again.");
+  });
 }
 
 function loginSuccess(user) { 
@@ -3872,14 +3973,16 @@ function loginSuccess(user) {
   }
   // END OF ADDED BLOCK
 
+    if (!window._isSessionRestore) {
     if (document.getElementById('rememberMe')?.checked) {
-    localStorage.setItem('savedUsername', document.getElementById('username').value);
-    localStorage.setItem('savedPassword', document.getElementById('password').value);
-    localStorage.setItem('rememberMe', 'true');
-  } else {
-    localStorage.removeItem('savedUsername');
-    localStorage.removeItem('savedPassword');
-    localStorage.removeItem('rememberMe');
+      localStorage.setItem('savedUsername', document.getElementById('username').value);
+      localStorage.setItem('savedPassword', document.getElementById('password').value);
+      localStorage.setItem('rememberMe', 'true');
+    } else {
+      localStorage.removeItem('savedUsername');
+      localStorage.removeItem('savedPassword');
+      localStorage.removeItem('rememberMe');
+    }
   }
   document.getElementById("welcomeTeacherName").textContent = user.teacherName; 
   document.getElementById("welcomeTeacherNameDisplay").textContent = user.teacherName; 
@@ -4746,6 +4849,7 @@ function filterPrevBarcodeStudentList() {
 }
 
 function validateAndMarkAttendance() {
+  if (!isOnlineOrWarn()) return;
   if (!userPermissions.canMarkManual) return showPopup("Error", "No permission");
   if (isSubmitting) return showPopup("Warning", "⚠️ Submission in progress. Please wait.");
   
@@ -4825,6 +4929,7 @@ function validateAndMarkAttendance() {
 }
 
 function validateAndMarkBarcodeAttendance() {
+    if (!isOnlineOrWarn()) return;
   if (!userPermissions.canMarkBarcode) return showPopup("Error", "No permission");
   if (isSubmitting) return showPopup("Warning", "⚠️ Submission in progress. Please wait.");
   
@@ -4906,6 +5011,7 @@ function validateAndMarkBarcodeAttendance() {
 }
 
 function validateAndMarkPrevBarcodeAttendance() {
+  if (!isOnlineOrWarn()) return;
   if (!userPermissions.canMarkBarcode) return showPopup("Error", "No permission");
   if (isSubmitting) return showPopup("Warning", "⚠️ Submission in progress. Please wait.");
   
@@ -4978,6 +5084,7 @@ function validateAndMarkPrevBarcodeAttendance() {
 }
 
 function validateAndMarkPreviousAttendance() { 
+  if (!isOnlineOrWarn()) return;
   if (!userPermissions.canMarkManual) return showPopup("Error", "No permission");
   if (isSubmitting) return showPopup("Warning", "⚠️ Submission in progress. Please wait.");
   
@@ -5120,6 +5227,7 @@ function handleLogout() {
   studentData = []; 
   scannedStudents.clear(); 
   isSubmitting = false;
+  isSubmittingEpisodic = false;   // ← add this line
   document.getElementById("loginForm").reset(); 
   restoreSavedCredentials();
   handleNavigation("loginPage"); 
@@ -6571,6 +6679,78 @@ window.addEventListener("load", () => {
   // Give DOMContentLoaded a moment to finish setup, then restore if a session exists
   setTimeout(() => { tryRestoreSession(); }, 100);
 });
+
+
+// ── Network status banner + connection pill ──
+function updateNetworkBanner() {
+  const banner = document.getElementById("offlineBanner");
+  const pill   = document.getElementById("connectionPill");
+  const label  = pill ? pill.querySelector(".connection-label") : null;
+
+  if (navigator.onLine) {
+    if (banner) banner.style.display = "none";
+    if (pill) {
+      pill.classList.remove("offline");
+      pill.classList.add("online");
+      if (label) label.textContent = "Connected";
+    }
+  } else {
+    if (banner) banner.style.display = "block";
+    if (pill) {
+      pill.classList.remove("online");
+      pill.classList.add("offline");
+      if (label) label.textContent = "Offline";
+    }
+  }
+}
+
+function isOnlineOrWarn() {
+  if (!navigator.onLine) {
+    showPopup("No Internet", "You are offline. Please reconnect to the internet and try again.");
+    return false;
+  }
+  return true;
+}
+
+// Wrap google.script.run calls with a timeout so they can't hang forever
+function runWithTimeout(timeoutMs, runnerFn) {
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const timer = setTimeout(() => {
+      if (finished) return;
+      finished = true;
+      reject(new Error("Request timed out. Please check your internet and try again."));
+    }, timeoutMs);
+
+    runnerFn(
+      (result) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        resolve(result);
+      },
+      (error) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+// Universal safety net: whenever the browser goes offline, hide the loading overlay
+function safeHideLoadingOnOffline() {
+  window.addEventListener("offline", function () {
+    try { showLoading(false); } catch (e) {}
+  });
+}
+
+
+window.addEventListener("online", updateNetworkBanner);
+window.addEventListener("offline", updateNetworkBanner);
+document.addEventListener("DOMContentLoaded", updateNetworkBanner);
+document.addEventListener("DOMContentLoaded", safeHideLoadingOnOffline);
 
 
 // DEFINE EVENT LISTENERS SEPARATELY (OUTSIDE DOMContentLoaded)
