@@ -484,7 +484,12 @@ function isWithinSchedule(username) {
 
 
 
-function getSummaryData(username) {
+// Summary report (v5.1): computed in the app from Student_Attendance +
+// Daily_Hours_Setup for a picked date (default TODAY, Asia/Karachi). The old
+// version read the formula-backed Summary sheet, whose J1 lookup errored with
+// #N/A on any day before the first marking; this version has no Summary-sheet
+// dependency.
+function getSummaryData(username, classSection, dateStr) {
   try {
     const assignedSections = getAssignedClassSections(username);
     Logger.log('Assigned Sections for ' + username + ': ' + assignedSections);
@@ -493,45 +498,108 @@ function getSummaryData(username) {
       return [];
     }
 
-    const summarySheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Summary');
-    if (!summarySheet) throw new Error('Summary sheet not found');
-    
-    const data = summarySheet.getDataRange().getValues();
-    Logger.log('Summary sheet data: ' + JSON.stringify(data));
-    if (data.length <= 1) {
-      Logger.log('Summary sheet is empty or contains only headers');
-      return [];
+    // A direct call may ask for one class only: refuse it unless assigned
+    // (same rule as the Daily/Monthly/Day Wise reports).
+    let sections = assignedSections.slice();
+    if (classSection) {
+      if (!isClassSectionAssigned_(assignedSections, classSection)) {
+        throw new Error('You are not assigned to class ' + classSection + '.');
+      }
+      sections = [classSection];
     }
 
-    const headers = data[0];
-    const sectionCol = headers.indexOf('Class_Section');
-    const presentCol = headers.indexOf('Present');
-    const absentCol = headers.indexOf('Absent');
-    const leavesCol = headers.indexOf('Leaves');
-    const hoursCol = headers.indexOf('Hours');
-    const categoryCol = headers.indexOf('Category');
-    
-    if (sectionCol === -1 || presentCol === -1 || absentCol === -1 || leavesCol === -1) {
-      throw new Error('Required columns (Class_Section, Present, Absent, Leaves) not found');
+    // Rows in Class_Sections order, as the old sheet listed them.
+    const order = getClassSections();
+    sections.sort(function (a, b) {
+      const ia = order.indexOf(a), ib = order.indexOf(b);
+      return (ia === -1 ? 9999 : ia) - (ib === -1 ? 9999 : ib);
+    });
+
+    // v5.1: optional summary date (yyyy-MM-dd). No date = today (Asia/Karachi).
+    // A future date has no attendance to summarise, so it is refused.
+    const todayStr = Utilities.formatDate(new Date(), 'Asia/Karachi', 'yyyy-MM-dd');
+    let summaryDate = todayStr;
+    if (dateStr !== undefined && dateStr !== null && String(dateStr).trim() !== '') {
+      const picked = String(dateStr).trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(picked)) {
+        throw new Error('Invalid summary date: ' + picked + '. Use yyyy-MM-dd.');
+      }
+      const parts = picked.split('-').map(Number);
+      const d = new Date(parts[0], parts[1] - 1, parts[2]);
+      if (d.getFullYear() !== parts[0] || d.getMonth() !== parts[1] - 1 || d.getDate() !== parts[2]) {
+        throw new Error('Invalid summary date: ' + picked + '.');
+      }
+      if (picked > todayStr) {
+        throw new Error('Future dates are not allowed for the summary.');
+      }
+      summaryDate = picked;
     }
 
-    const filteredData = data.filter(row => assignedSections.includes(row[sectionCol]));
-    Logger.log('Filtered summary data: ' + JSON.stringify(filteredData));
-    if (filteredData.length === 0) {
-      Logger.log('No data found for assigned sections: ' + assignedSections);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const attSheet = ss.getSheetByName('Student_Attendance');
+    if (!attSheet) throw new Error('Student_Attendance sheet not found');
+    const attData = attSheet.getDataRange().getValues();
+    const attHeaders = attData[0].map(function (h) { return String(h).trim(); });
+    const dateCol = attHeaders.indexOf('Date');
+    const statusCol = attHeaders.indexOf('Status');
+    const clsSecCol = attHeaders.indexOf('Class_Section');
+    const clsCol = attHeaders.indexOf('Student_Class');
+    const secCol = attHeaders.indexOf('Student_Section');
+    if (dateCol === -1 || statusCol === -1 || (clsSecCol === -1 && (clsCol === -1 || secCol === -1))) {
+      throw new Error('Required columns (Date, Status, Class_Section) not found in Student_Attendance');
     }
 
-    return filteredData.map(row => ({
-      classSection: row[sectionCol] || '',
-      hours: hoursCol !== -1 ? (row[hoursCol] || '') : '',
-      category: categoryCol !== -1 ? (row[categoryCol] || '') : '',
-      present: row[presentCol] !== undefined && row[presentCol] !== '' && !isNaN(row[presentCol]) ? Number(row[presentCol]) : 0,
-      absent: row[absentCol] !== undefined && row[absentCol] !== '' && !isNaN(row[absentCol]) ? Number(row[absentCol]) : 0,
-      leaves: row[leavesCol] !== undefined && row[leavesCol] !== '' && !isNaN(row[leavesCol]) ? Number(row[leavesCol]) : 0,
-      total: (row[presentCol] !== undefined && row[presentCol] !== '' && !isNaN(row[presentCol]) ? Number(row[presentCol]) : 0) +
-             (row[absentCol] !== undefined && row[absentCol] !== '' && !isNaN(row[absentCol]) ? Number(row[absentCol]) : 0) +
-             (row[leavesCol] !== undefined && row[leavesCol] !== '' && !isNaN(row[leavesCol]) ? Number(row[leavesCol]) : 0)
-    }));
+    // Count the picked day's rows per class-section, by Status. Like the old sheet
+    // COUNTIFS, every row counts (no Attendance_Type filter — episodic rows
+    // count too) and duplicate rows count twice.
+    const counts = {};
+    sections.forEach(function (s) { counts[s] = { present: 0, absent: 0, leave: 0 }; });
+    for (let i = 1; i < attData.length; i++) {
+      const row = attData[i];
+      if (normalizeYMD_(row[dateCol]) !== summaryDate) continue;
+      let cs = clsSecCol !== -1 ? String(row[clsSecCol] || '').trim() : '';
+      if (!cs && clsCol !== -1 && secCol !== -1) {
+        const c = String(row[clsCol] || '').trim();
+        const s = String(row[secCol] || '').trim();
+        if (c && s) cs = c + '-' + s;
+      }
+      const bucket = cs ? counts[cs] : null;
+      if (!bucket) continue;
+      const st = String(row[statusCol] || '').toLowerCase().trim();
+      if (st === 'present') bucket.present++;
+      else if (st === 'absent') bucket.absent++;
+      else if (st === 'leave') bucket.leave++;
+      // unknown statuses (e.g. 'Not Applicable') are ignored in the total,
+      // same as the old sheet version
+    }
+
+    // Category + Hours are the day's SETUP values from Daily_Hours_Setup
+    // (same lookup the sheet did): normal-type row first, fallback any type.
+    return sections.map(function (cs) {
+      const c = counts[cs];
+      let category = '';
+      let hours = '';
+      try {
+        let wh = checkDailyHours(summaryDate, cs, 'normal');
+        if (!wh || !wh.exists) wh = checkDailyHours(summaryDate, cs);
+        if (wh && wh.exists) {
+          category = wh.category == null ? '' : wh.category;
+          hours = wh.hours == null ? '' : wh.hours;
+        }
+      } catch (e) {
+        category = '';
+        hours = ''; // no setup sheet/row: summary still works, blank setup
+      }
+      return {
+        classSection: cs,
+        hours: hours,
+        category: category,
+        present: c.present,
+        absent: c.absent,
+        leaves: c.leave,
+        total: c.present + c.absent + c.leave
+      };
+    });
   } catch (e) {
     Logger.log('Error in getSummaryData: ' + e.message);
     throw e;
@@ -570,7 +638,10 @@ function getPrevPermRows_() {
 
   const headers = data[0].map(h => String(h).trim());
   const expCol  = headers.indexOf('Expires_At');
+  const grantedCol = headers.indexOf('Granted_At');
   const typeCol = headers.indexOf('Attendance_Type');
+  const clsCol  = headers.indexOf('Class_Section');
+  const recCol  = headers.indexOf('REC_ID');
 
   const rows = [];
   for (let i = 1; i < data.length; i++) {
@@ -580,17 +651,28 @@ function getPrevPermRows_() {
       dateRaw:   data[i][1],
       password:  String(data[i][2]).trim(),
       expiresAt: expCol  !== -1 ? data[i][expCol]  : '',
-      type:      typeCol !== -1 ? String(data[i][typeCol] || '').trim() : ''
+      grantedAt: grantedCol !== -1 ? data[i][grantedCol] : '',
+      type:      typeCol !== -1 ? String(data[i][typeCol] || '').trim() : '',
+      classSection: clsCol !== -1 ? String(data[i][clsCol] || '').trim() : '',
+      recId:   recCol !== -1 ? String(data[i][recCol] || '').trim() : ''
     });
   }
   return rows;
 }
 
-/** 24-hour window valid hai? (khaali/kharab value = allow, taaki purani rows na tootein) */
+/** Effective expiry nikalo: Expires_At ho to wohi; warna Granted_At + 24 ghante; dono na hon to null. */
+function prevPermEffectiveExpiry_(row) {
+  const exp = row.expiresAt instanceof Date ? row.expiresAt : new Date(row.expiresAt);
+  if (row.expiresAt && !isNaN(exp.getTime())) return exp;
+  const g = row.grantedAt instanceof Date ? row.grantedAt : new Date(row.grantedAt);
+  if (row.grantedAt && !isNaN(g.getTime())) return new Date(g.getTime() + 24 * 60 * 60 * 1000);
+  return null;
+}
+
+/** 24-hour window valid hai? Effective expiry (Expires_At, warna Granted_At + 24h) abhi future mein ho. Dono khaali/kharab hon to row live nahi. */
 function prevPermNotExpired_(row) {
-  if (!row.expiresAt) return true;
-  const exp = new Date(row.expiresAt);
-  if (isNaN(exp.getTime())) return true;
+  const exp = prevPermEffectiveExpiry_(row);
+  if (!exp) return false;
   return new Date().getTime() <= exp.getTime();
 }
 
@@ -603,18 +685,52 @@ function prevPermTypeMatches_(row, wantedType) {
   return have === want;
 }
 
+/** Class match karta hai? (row ki Class_Section khaali = sab classes allowed) */
+function prevPermClassMatches_(row, classSection) {
+  const want = String(classSection || '').trim();
+  if (!want) return true;
+  const have = String(row.classSection || '').trim();
+  if (!have) return true;
+  return have === want;
+}
+
+/** '1102-A78941' jaisi value se REC prefix hatao — sirf asal password compare karo */
+function stripPrevPermPrefix_(value) {
+  return String(value || '').trim().replace(/^\d+-/, '');
+}
+
+/** Effective expiry ko readable string banao ('16 Nov 2026, 01:13'); khaali/kharab = '' */
+function formatPrevPermExpiry_(expiresAt) {
+  if (!expiresAt) return '';
+  const d = expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
+  if (isNaN(d.getTime())) return '';
+  try {
+    return Utilities.formatDate(d, 'Asia/Karachi', 'dd MMM yyyy, HH:mm');
+  } catch (e) {
+    return '';
+  }
+}
+
 const PREV_PERM_EXPIRED_MSG =
   'Your previous-date access has expired (24-hour limit crossed). Please request a new permission from the administrator.';
 
-function verifyPreviousPassword(username, password, attendanceType) {
+function verifyPreviousPassword(username, password, attendanceType, date, classSection) {
   try {
     const rows = getPrevPermRows_();
     let expired = false;
+    const typed = stripPrevPermPrefix_(password);
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
-      if (r.username !== username || r.password !== String(password).trim()) continue;
+      if (r.username !== username) continue;
+      if (stripPrevPermPrefix_(r.password) !== typed) continue;
       if (!prevPermTypeMatches_(r, attendanceType)) continue;
+      if (date) {
+        const sheetDate = new Date(r.dateRaw);
+        if (isNaN(sheetDate.getTime())) continue;
+        if (sheetDate.toLocaleDateString('en-CA') !== new Date(date).toLocaleDateString('en-CA')) continue;
+      }
+      if (!prevPermClassMatches_(r, classSection)) continue;
       if (!prevPermNotExpired_(r)) { expired = true; continue; }
       return true;
     }
@@ -627,7 +743,7 @@ function verifyPreviousPassword(username, password, attendanceType) {
   }
 }
 
-function checkPreviousDatePermission(username, date, attendanceType) {
+function checkPreviousDatePermission(username, date, attendanceType, classSection) {
   try {
     const rows = getPrevPermRows_();
     const dateString = new Date(date).toLocaleDateString('en-CA'); // YYYY-MM-DD
@@ -644,6 +760,7 @@ function checkPreviousDatePermission(username, date, attendanceType) {
       }
       if (sheetDate.toLocaleDateString('en-CA') !== dateString) continue;
       if (!prevPermTypeMatches_(r, attendanceType)) continue;
+      if (!prevPermClassMatches_(r, classSection)) continue;
       if (!prevPermNotExpired_(r)) { expired = true; continue; }
 
       return true;
@@ -676,25 +793,32 @@ function getClassSections() {
 
 let allowedDatesCache = null;
 
-function getAllowedPreviousDates(username, attendanceType) {
-  const cacheKey = username + '|' + String(attendanceType || '');
+function getAllowedPreviousDates(username, attendanceType, classSection) {
+  const cacheKey = username + '|' + String(attendanceType || '') + '|' + String(classSection || '');
   if (allowedDatesCache && allowedDatesCache.key === cacheKey) return allowedDatesCache.dates;
 
   const rows = getPrevPermRows_();
+  const todayStr = Utilities.formatDate(new Date(), 'Asia/Karachi', 'yyyy-MM-dd');
   const allowedDates = [];
+  const seen = {};
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     if (r.username !== username || !r.dateRaw) continue;
     if (!prevPermTypeMatches_(r, attendanceType)) continue;   // Normal / Episodic / Both
     if (!prevPermNotExpired_(r)) continue;                    // 24 ghante guzar gaye
+    if (!prevPermClassMatches_(r, classSection)) continue;    // class scope (khaali row = sab classes)
 
     const d = new Date(r.dateRaw);
     if (isNaN(d.getTime())) {
       Logger.log(`Invalid date in Previous_Date_Permissions row for ${username}: ${r.dateRaw}`);
       continue;
     }
-    allowedDates.push(d.toLocaleDateString('en-CA'));
+    const dateStr = d.toLocaleDateString('en-CA');
+    if (dateStr > todayStr) continue;                          // future dates kabhi offer nahi
+    if (seen[dateStr]) continue;
+    seen[dateStr] = true;
+    allowedDates.push({ date: dateStr, expiresAt: formatPrevPermExpiry_(prevPermEffectiveExpiry_(r)) });
   }
 
   allowedDatesCache = { key: cacheKey, dates: allowedDates };
@@ -1053,6 +1177,18 @@ console.log('Hours check result:', hoursCheck);  // Add this for debugging
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRegex.test(date)) {
       throw new Error(`Invalid date format: ${date}. Please use YYYY-MM-DD (e.g., 2025-10-03).`);
+    }
+
+    // -------------------------------------------------
+    // Previous-date permission check (server-side)
+    // Pichhli date ke liye live Previous_Date_Permissions row
+    // (user + date + class) zaroori hai. Aaj ki date ke liye nahi.
+    // -------------------------------------------------
+    if (date < todayStr_) {
+      const allowed = checkPreviousDatePermission(username, date, 'Normal', class_section);
+      if (!allowed) {
+        throw new Error('You do not have permission to mark attendance for this previous date. Please request a new permission from the administrator.');
+      }
     }
 
     // -------------------------------------------------
@@ -1432,6 +1568,19 @@ function markEpisodicAttendance(studentStatuses, classSection, date, username, e
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRegex.test(date)) {
       throw new Error(`Invalid date format: ${date}. Please use YYYY-MM-DD (e.g., 2025-10-03).`);
+    }
+
+    // ========================================================
+    // 1b. PREVIOUS-DATE PERMISSION CHECK (server-side)
+    // Pichhli date ke liye live Previous_Date_Permissions row
+    // (user + date + class + Episodic type) zaroori hai.
+    // ========================================================
+    const todayStr_ = Utilities.formatDate(new Date(), 'Asia/Karachi', 'yyyy-MM-dd');
+    if (date < todayStr_) {
+      const allowed = checkPreviousDatePermission(username, date, 'Episodic', classSection);
+      if (!allowed) {
+        throw new Error('You do not have permission to mark episodic attendance for this previous date. Please request a new permission from the administrator.');
+      }
     }
     
     // ========================================================
@@ -2417,81 +2566,409 @@ function getUserPermissions(username) {
 // =============== REPORT FUNCTIONS ===============
 
 // NEW: Generate student attendance report for PDF/CSV download
-function generateStudentAttendanceReport(date, classSection) {
+// ===== REPORT MATH — MIS portal Daily/Monthly rules (v3 port) =====
+// Pure helpers (no sheet access) so the maths can be unit-checked in Node.
+// Portal rules implemented here:
+// - Only Present earns hours (Absent/Leave rows never contribute hours).
+// - Statuses other than present/absent/leave are ignored (never counted).
+// - Multiple rows for one student+day count as multiple attendances
+//   (portal rule: daily shows Present (2); monthly counts the rows), so
+//   daily and monthly always agree. Marking prevents new duplicates.
+// - Episodic rows (Attendance_Type = 'Episodic') are excluded: the daily
+//   and monthly reports here are the NORMAL reports (same as getStudentList).
+// - Inactive_Date is the first day the student is NOT active (portal rule).
+
+// First ACTIVE Class_Terms row wins (sheet order), REC-matched when recId given.
+// rows: [{Class_Section, Term_ID, Is_Active, Start_Date, End_Date, REC_ID}]
+// Returns {termId, fromDate, toDate} (yyyy-MM-dd) or null.
+function pickTermRange_(rows, classSection, termId, recId) {
+  const wantTerm = String(termId || '').trim().toLowerCase();
+  const wantRec = String(recId || '').trim();
+  const list = rows || [];
+  for (let i = 0; i < list.length; i++) {
+    const r = list[i];
+    if (!r) continue;
+    if (String(r.Term_ID || '').trim().toLowerCase() !== wantTerm) continue;
+    if (String(r.Is_Active == null ? '' : r.Is_Active).trim().toLowerCase() !== 'true') continue;
+    if (!classCellMatches_(String(r.Class_Section || ''), classSection)) continue;
+    if (wantRec && r.REC_ID !== undefined && r.REC_ID !== null && String(r.REC_ID).trim() !== '' && String(r.REC_ID).trim() !== wantRec) continue;
+    const s = normalizeYMD_(r.Start_Date);
+    const e = normalizeYMD_(r.End_Date);
+    if (!s || !e) continue;
+    return { termId: String(r.Term_ID || '').trim(), fromDate: s, toDate: e };
+  }
+  return null;
+}
+
+// Is the student enrolled on targetYMD (yyyy-MM-dd)? Portal rule:
+// joined (no DoJ, or DoJ <= day) AND not left (no Inactive_Date, or Inactive_Date > day).
+function isEnrolledOnYMD_(targetYMD, dojYMD, inactiveYMD) {
+  const d = String(dojYMD || '').trim();
+  const ia = String(inactiveYMD || '').trim();
+  const joinedOK = !d || d <= targetYMD;
+  const notLeftOK = !ia || ia > targetYMD;
+  return joinedOK && notLeftOK;
+}
+
+// Is the student enrolled at ANY POINT during [startYMD, endYMD]? Portal rule
+// (same formula as the portal's isEnrolledInMonth, on yyyy-MM-dd strings so no
+// timezone shift is possible).
+function isEnrolledInMonthYMD_(startYMD, endYMD, dojYMD, inactiveYMD) {
+  const d = String(dojYMD || '').trim();
+  const ia = String(inactiveYMD || '').trim();
+  const joinedByMonthEnd = !d || d <= endYMD;
+  const notLeftBeforeStart = !ia || ia >= startYMD;
+  return joinedByMonthEnd && notLeftBeforeStart;
+}
+
+// 'Active' / 'Inactive' in a month (portal monthStatusFor, on yyyy-MM-dd strings).
+function monthStatusForYMD_(startYMD, endYMD, dojYMD, inactiveYMD) {
+  return isEnrolledInMonthYMD_(startYMD, endYMD, dojYMD, inactiveYMD) ? 'Active' : 'Inactive';
+}
+
+// Daily aggregation (pure). rows: [{stdId, status, hours, type}] already filtered
+// to one class-section + one date. Returns per-student {present, absent, leave, other, hours}.
+// Hours count only on Present rows; Episodic rows are skipped.
+function aggregateDailyRows_(rows) {
+  const out = {};
+  (rows || []).forEach(function (r) {
+    if (String(r.type || '').toLowerCase().trim() === 'episodic') return;
+    const sid = String(r.stdId || '').trim();
+    if (!sid) return;
+    if (!out[sid]) out[sid] = { present: 0, absent: 0, leave: 0, other: 0, hours: 0 };
+    const st = String(r.status || '').toLowerCase().trim();
+    const hrs = Number(r.hours || 0);
+    if (st === 'present') {
+      out[sid].present++;
+      if (!isNaN(hrs) && hrs > 0) out[sid].hours += hrs;
+    } else if (st === 'absent') out[sid].absent++;
+    else if (st === 'leave') out[sid].leave++;
+    else out[sid].other++;
+  });
+  return out;
+}
+
+// Portal daily status label for one student (counts shown when > 1).
+function dailyStatusLabel_(c) {
+  if (!c) return 'Not Marked';
+  if (c.present > 0) return 'Present' + (c.present > 1 ? ' (' + c.present + ')' : '');
+  if (c.absent > 0) return 'Absent' + (c.absent > 1 ? ' (' + c.absent + ')' : '');
+  if (c.leave > 0) return 'Leave' + (c.leave > 1 ? ' (' + c.leave + ')' : '');
+  if (c.other > 0) return 'Other' + (c.other > 1 ? ' (' + c.other + ')' : '');
+  return 'Not Marked';
+}
+
+// Monthly aggregation (pure). rows: [{stdId, dateYMD, status, hours, type}] for one
+// student. Only rows with startYMD <= dateYMD <= endYMD count. Unknown statuses
+// are ignored (never counted). Hours count only on Present rows.
+function aggregateMonthlyRows_(rows, startYMD, endYMD) {
+  const agg = { presents: 0, absents: 0, leaves: 0, totalDays: 0, hours: 0 };
+  (rows || []).forEach(function (r) {
+    const k = String(r.dateYMD || '').trim();
+    if (!k || k < startYMD || k > endYMD) return;
+    if (String(r.type || '').toLowerCase().trim() === 'episodic') return;
+    const st = String(r.status || '').toLowerCase().trim();
+    const hrs = Number(r.hours || 0);
+    if (st === 'present') {
+      agg.presents++; agg.totalDays++;
+      if (!isNaN(hrs) && hrs > 0) agg.hours += hrs;
+    } else if (st === 'absent') { agg.absents++; agg.totalDays++; }
+    else if (st === 'leave') { agg.leaves++; agg.totalDays++; }
+  });
+  return agg;
+}
+
+// Working days in a range (pure). setupRows: [{dateYMD, classSection}] from
+// Daily_Hours_Setup. Counts DISTINCT dates in range for the class-section.
+function countWorkingDays_(setupRows, classSection, startYMD, endYMD) {
+  const seen = {};
+  let n = 0;
+  (setupRows || []).forEach(function (r) {
+    if (String(r.classSection || '').trim() !== String(classSection || '').trim()) return;
+    const k = String(r.dateYMD || '').trim();
+    if (!k || k < startYMD || k > endYMD) return;
+    if (!seen[k]) { seen[k] = true; n++; }
+  });
+  return n;
+}
+
+// Assignment check (pure). The report pickers list assigned classes only; the
+// server re-checks so a direct call can never show another class.
+function isClassSectionAssigned_(assignedList, classSection) {
+  const list = assignedList || [];
+  for (let i = 0; i < list.length; i++) {
+    if (String(list[i] || '').trim() === String(classSection || '').trim()) return true;
+  }
+  return false;
+}
+
+// Distinct Daily_Hours_Setup dates in [startYMD, endYMD] for one class-section.
+// Returns 0 when the sheet is missing (reports must not die on missing setup).
+function countWorkingDaysInRange_(classSection, startYMD, endYMD) {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Daily_Hours_Setup');
+    if (!sheet) return 0;
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return 0;
+    const h = data[0].map(function (x) { return String(x).trim(); });
+    const dateCol = h.indexOf('Date');
+    const clsCol = h.indexOf('Class_Section');
+    const dCol = dateCol !== -1 ? dateCol : 0;
+    const cCol = clsCol !== -1 ? clsCol : 1;
+    const setupRows = [];
+    for (let i = 1; i < data.length; i++) {
+      setupRows.push({ dateYMD: normalizeYMD_(data[i][dCol]), classSection: data[i][cCol] });
+    }
+    return countWorkingDays_(setupRows, classSection, startYMD, endYMD);
+  } catch (e) {
+    Logger.log('Error in countWorkingDaysInRange_: ' + e.message);
+    return 0;
+  }
+}
+// Working-day set in a range (pure). setupRows: [{dateYMD, classSection}]
+// from Daily_Hours_Setup. Returns { 'yyyy-MM-dd': true } for distinct dates.
+function workingDateSet_(setupRows, classSection, startYMD, endYMD) {
+  const set = {};
+  (setupRows || []).forEach(function (r) {
+    if (String(r.classSection || '').trim() !== String(classSection || '').trim()) return;
+    const k = String(r.dateYMD || '').trim();
+    if (!k || k < startYMD || k > endYMD) return;
+    set[k] = true;
+  });
+  return set;
+}
+
+// Daily_Hours_Setup dates in [startYMD, endYMD] for one class-section, as a set.
+// Returns {} when the sheet is missing (reports must not die on missing setup).
+function getWorkingDatesInRange_(classSection, startYMD, endYMD) {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Daily_Hours_Setup');
+    if (!sheet) return {};
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return {};
+    const h = data[0].map(function (x) { return String(x).trim(); });
+    const dateCol = h.indexOf('Date');
+    const clsCol = h.indexOf('Class_Section');
+    const dCol = dateCol !== -1 ? dateCol : 0;
+    const cCol = clsCol !== -1 ? clsCol : 1;
+    const setupRows = [];
+    for (let i = 1; i < data.length; i++) {
+      setupRows.push({ dateYMD: normalizeYMD_(data[i][dCol]), classSection: data[i][cCol] });
+    }
+    return workingDateSet_(setupRows, classSection, startYMD, endYMD);
+  } catch (e) {
+    Logger.log('Error in getWorkingDatesInRange_: ' + e.message);
+    return {};
+  }
+}
+
+// Per-day counts for one student (pure). rows: [{stdId, dateYMD, status, hours, type}].
+// Only rows in [startYMD, endYMD] count; Episodic rows are skipped. Unknown
+// statuses are tracked as 'other' (shown as '·' in the grid) but never counted
+// in totals — the same counting as aggregateMonthlyRows_.
+function aggregateDayWiseRows_(rows, startYMD, endYMD) {
+  const out = {};
+  (rows || []).forEach(function (r) {
+    const k = String(r.dateYMD || '').trim();
+    if (!k || k < startYMD || k > endYMD) return;
+    if (String(r.type || '').toLowerCase().trim() === 'episodic') return;
+    const day = Number(k.slice(8, 10));
+    if (!day) return;
+    if (!out[day]) out[day] = { present: 0, absent: 0, leave: 0, other: 0 };
+    const st = String(r.status || '').toLowerCase().trim();
+    if (st === 'present') out[day].present++;
+    else if (st === 'absent') out[day].absent++;
+    else if (st === 'leave') out[day].leave++;
+    else out[day].other++;
+  });
+  return out;
+}
+
+// Portal MonthlyBarReport cell symbol: P/P2, A/A2, L/L3, ·/·2 (priority
+// Present > Absent > Leave > Other). '' when the day has no records.
+function dayWiseCellSymbol_(c) {
+  if (!c) return '';
+  if (c.present > 0) return 'P' + (c.present > 1 ? c.present : '');
+  if (c.absent > 0) return 'A' + (c.absent > 1 ? c.absent : '');
+  if (c.leave > 0) return 'L' + (c.leave > 1 ? c.leave : '');
+  if (c.other > 0) return '·' + (c.other > 1 ? c.other : '');
+  return '';
+}
+
+// Build one student's Day Wise grid row (pure). agg comes from
+// aggregateMonthlyRows_ (the same totals as the v3 Monthly report, so the two
+// reports always agree); perDay comes from aggregateDayWiseRows_.
+// Day symbols: 'P'/'P2'/'A'/'A2'/'L'/'L3'/'·'/'·2' when the day has records
+// (a marked day is never dashed, even if it falls outside enrolment — the row
+// still counts in the totals, portal rule); '—' when the day is outside the
+// term-intersected range or the student was not enrolled that day;
+// '×' when enrolled but not a working day (Daily_Hours_Setup); '-' when it is
+// a working day with no record.
+function dayWiseRow_(student, agg, perDay, workingSet, effStartYMD, effEndYMD, daysInMonth, monthStartYMD, monthEndYMD) {
+  const pad2 = function (n) { return String(n).padStart(2, '0'); };
+  const days = {};
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ymd = String(monthStartYMD).slice(0, 8) + pad2(d);
+    const c = perDay[d];
+    if (c && (c.present > 0 || c.absent > 0 || c.leave > 0 || c.other > 0)) {
+      days[d] = dayWiseCellSymbol_(c);
+    } else if (ymd < effStartYMD || ymd > effEndYMD) {
+      days[d] = '—';
+    } else if (!isEnrolledOnYMD_(ymd, student.dojYMD, student.inactiveYMD)) {
+      days[d] = '—';
+    } else if (!workingSet[ymd]) {
+      days[d] = '×';
+    } else {
+      days[d] = '-';
+    }
+  }
+  const pct = agg.totalDays > 0 ? Math.round((agg.presents / agg.totalDays) * 100 * 100) / 100 : 0;
+  return {
+    studentId: student.studentId,
+    studentName: student.studentName,
+    className: student.className,
+    section: student.section,
+    status: monthStatusForYMD_(monthStartYMD, monthEndYMD, student.dojYMD, student.inactiveYMD),
+    days: days,
+    presents: agg.presents,
+    absents: agg.absents,
+    leaves: agg.leaves,
+    totalDays: agg.totalDays,
+    percentage: pct,
+    hours: Math.round((agg.hours || 0) * 100) / 100
+  };
+}
+
+function generateStudentAttendanceReport(date, classSection, termId, recId, username) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    
+
     // Get student data
     const studentSheet = ss.getSheetByName('Student_Data');
     if (!studentSheet) throw new Error('Student_Data sheet not found');
-    
+
     const attendanceSheet = ss.getSheetByName('Student_Attendance');
     if (!attendanceSheet) throw new Error('Student_Attendance sheet not found');
-    
-    // Get all attendance for the given date and class
+
+    if (!classSection || String(classSection).indexOf('-') === -1) {
+      throw new Error('Invalid class section: ' + classSection);
+    }
+    const parts = String(classSection).split('-');
+    const className = String(parts[0] || '').trim();
+    const section = String(parts[1] || '').trim();
+    const targetDate = new Date(date).toLocaleDateString('en-CA');
+
+    // Reports are scoped to the teacher's assignments: a direct call can never
+    // show a class the user is not assigned to (the pickers already list
+    // assigned classes only; getSummaryData enforces the same rule).
+    if (username) {
+      const assigned = getAssignedClassSections(username);
+      if (!isClassSectionAssigned_(assigned, classSection)) {
+        throw new Error('You are not assigned to class ' + classSection + '.');
+      }
+    }
+
+    // Term guard (portal rule): when a term is picked, the date must lie inside
+    // this class-section's term range (first ACTIVE Class_Terms row wins).
+    if (termId) {
+      const range = getTermDateRangeForClass(classSection, termId, recId || null);
+      if (!range) {
+        throw new Error('No term dates set up for ' + classSection + ' in Term ' + termId + '. Add a Class_Terms row first.');
+      }
+      if (targetDate < range.fromDate || targetDate > range.toDate) {
+        throw new Error('Selected date is outside Term ' + termId + ' for ' + classSection + ' (' + range.fromDate + ' to ' + range.toDate + ').');
+      }
+    }
+
+    // ---- Roster: Student_Data, class/section + enrolled on that day (portal rule) ----
+    const studentData = studentSheet.getDataRange().getValues();
+    const studentHeaders = studentData[0];
+    const shm = new Map(studentHeaders.map((h, i) => [h, i]));
+    const stdIdCol = shm.get('Std_ID');
+    const nameCol = shm.get('Student_Name');
+    const classCol = shm.get('Student_Class');
+    const sectionCol = shm.get('Student_Section');
+    const dojCol = shm.has('Date_of_Joining') ? shm.get('Date_of_Joining') : -1;
+    const inactCol = shm.has('Inactive_Date') ? shm.get('Inactive_Date') : -1;
+    if (stdIdCol === undefined || nameCol === undefined || classCol === undefined || sectionCol === undefined) {
+      throw new Error('Required columns missing in Student_Data sheet');
+    }
+
+    const roster = [];
+    for (let i = 1; i < studentData.length; i++) {
+      const row = studentData[i];
+      if (String(row[classCol] || '').trim() !== className) continue;
+      if (String(row[sectionCol] || '').trim() !== section) continue;
+      const dojYMD = dojCol !== -1 ? normalizeYMD_(row[dojCol]) : '';
+      const inactYMD = inactCol !== -1 ? normalizeYMD_(row[inactCol]) : '';
+      if (!isEnrolledOnYMD_(targetDate, dojYMD, inactYMD)) continue;
+      roster.push({ studentId: row[stdIdCol], studentName: row[nameCol] });
+    }
+
+    if (roster.length === 0) {
+      throw new Error('No students enrolled in ' + classSection + ' on ' + date + '.');
+    }
+
+    // ---- Day rows: aggregate per student (portal rule) ----
     const attendanceData = attendanceSheet.getDataRange().getValues();
     const headers = attendanceData[0];
     const headerMap = new Map(headers.map((h, i) => [h, i]));
-    
-    const requiredHeaders = ['Std_ID', 'Date', 'Status', 'Student_Name', 'Student_Class', 'Student_Section'];
-    requiredHeaders.forEach(h => {
-      if (!headerMap.has(h)) throw new Error(`Required column ${h} not found in Student_Attendance`);
-    });
-    
-    const [className, section] = classSection.split('-');
-    const targetDate = new Date(date).toLocaleDateString('en-CA');
-    
-    // Filter attendance records for the specific date and class
-    const filteredAttendance = [];
+    const aStdCol = headerMap.get('Std_ID');
+    const aDateCol = headerMap.get('Date');
+    const aStatusCol = headerMap.get('Status');
+    const aClassCol = headerMap.get('Student_Class');
+    const aSectionCol = headerMap.get('Student_Section');
+    const aHoursCol = headerMap.has('Hours') ? headerMap.get('Hours') : -1;
+    const aTypeCol = headerMap.has('Attendance_Type') ? headerMap.get('Attendance_Type') : -1;
+    if (aStdCol === undefined || aDateCol === undefined || aStatusCol === undefined || aClassCol === undefined || aSectionCol === undefined) {
+      throw new Error('Required columns missing in Student_Attendance sheet');
+    }
+
+    const dayRows = [];
     for (let i = 1; i < attendanceData.length; i++) {
       const row = attendanceData[i];
-      const rowDate = new Date(row[headerMap.get('Date')]).toLocaleDateString('en-CA');
-      const rowClass = row[headerMap.get('Student_Class')];
-      const rowSection = row[headerMap.get('Student_Section')];
-      
-      if (rowDate === targetDate && rowClass === className && rowSection === section) {
-        filteredAttendance.push({
-          studentId: row[headerMap.get('Std_ID')],
-          studentName: row[headerMap.get('Student_Name')],
-          className: rowClass,
-          section: rowSection,
-          date: date,
-          status: row[headerMap.get('Status')]
-        });
-      }
+      if (String(row[aClassCol] || '').trim() !== className) continue;
+      if (String(row[aSectionCol] || '').trim() !== section) continue;
+      if (normalizeYMD_(row[aDateCol]) !== targetDate) continue;
+      dayRows.push({
+        stdId: row[aStdCol],
+        status: row[aStatusCol],
+        hours: aHoursCol !== -1 ? row[aHoursCol] : 0,
+        type: aTypeCol !== -1 ? row[aTypeCol] : ''
+      });
     }
-    
-    // If no attendance records found, get all students from Student_Data
-    if (filteredAttendance.length === 0) {
-      const studentData = studentSheet.getDataRange().getValues();
-      const studentHeaders = studentData[0];
-      const studentHeaderMap = new Map(studentHeaders.map((h, i) => [h, i]));
-      
-      const stdIdCol = studentHeaderMap.get('Std_ID');
-      const nameCol = studentHeaderMap.get('Student_Name');
-      const classCol = studentHeaderMap.get('Student_Class');
-      const sectionCol = studentHeaderMap.get('Student_Section');
-      
-      for (let i = 1; i < studentData.length; i++) {
-        const row = studentData[i];
-        if (row[classCol] === className && row[sectionCol] === section) {
-          filteredAttendance.push({
-            studentId: row[stdIdCol],
-            studentName: row[nameCol],
-            className: className,
-            section: section,
-            date: date,
-            status: 'Not Marked'
-          });
-        }
-      }
+    const agg = aggregateDailyRows_(dayRows);
+
+    // ---- Working hours for the day (Daily_Hours_Setup, normal type) ----
+    let workingHours = 0;
+    try {
+      let wh = checkDailyHours(date, classSection, 'normal');
+      if (!wh || !wh.exists) wh = checkDailyHours(date, classSection);
+      if (wh && wh.exists && !isNaN(Number(wh.hours))) workingHours = Number(wh.hours);
+    } catch (e) {
+      workingHours = 0; // no setup sheet/row: report still works, working hours 0
     }
-    
-    // Sort by student name
-    filteredAttendance.sort((a, b) => a.studentName.localeCompare(b.studentName));
-    
-    return filteredAttendance;
-    
+    workingHours = Math.round(workingHours * 100) / 100;
+
+    // ---- Build rows: full roster, one row per student ----
+    const cleanName = function (s) { return String(s || '').replace(/[\u00A0\u200B-\u200D\uFEFF]/g, '').trim(); };
+    const rows = roster.map(function (s) {
+      const c = agg[String(s.studentId).trim()] || { present: 0, absent: 0, leave: 0, other: 0, hours: 0 };
+      return {
+        studentId: s.studentId,
+        studentName: s.studentName,
+        className: className,
+        section: section,
+        date: date,
+        status: dailyStatusLabel_(c),
+        hours: Math.round((c.hours || 0) * 100) / 100,
+        workingHours: workingHours
+      };
+    });
+    rows.sort(function (a, b) { return cleanName(a.studentName).localeCompare(cleanName(b.studentName), undefined, { sensitivity: 'base' }); });
+
+    return rows;
+
   } catch (error) {
     console.error('Error generating student attendance report:', error);
     throw error;
@@ -2499,110 +2976,339 @@ function generateStudentAttendanceReport(date, classSection) {
 }
 
 // NEW: Generate student monthly summary report
-function generateStudentMonthlySummary(studentId, month, year) {
+// Generate student monthly summary report (portal Monthly rules, v3 port)
+function generateStudentMonthlySummary(studentId, month, year, termId, recId, username) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    
+
     // Get student info
     const studentSheet = ss.getSheetByName('Student_Data');
     if (!studentSheet) throw new Error('Student_Data sheet not found');
-    
+
     const studentData = studentSheet.getDataRange().getValues();
     const studentHeaders = studentData[0];
     const studentHeaderMap = new Map(studentHeaders.map((h, i) => [h, i]));
-    
+
     // Find student
     let studentInfo = null;
     const stdIdCol = studentHeaderMap.get('Std_ID');
     const nameCol = studentHeaderMap.get('Student_Name');
     const classCol = studentHeaderMap.get('Student_Class');
     const sectionCol = studentHeaderMap.get('Student_Section');
-    
+    const dojCol = studentHeaderMap.has('Date_of_Joining') ? studentHeaderMap.get('Date_of_Joining') : -1;
+    const inactCol = studentHeaderMap.has('Inactive_Date') ? studentHeaderMap.get('Inactive_Date') : -1;
+
     for (let i = 1; i < studentData.length; i++) {
       if (String(studentData[i][stdIdCol]) === String(studentId)) {
         studentInfo = {
           studentId: studentData[i][stdIdCol],
           studentName: studentData[i][nameCol],
           className: studentData[i][classCol],
-          section: studentData[i][sectionCol]
+          section: studentData[i][sectionCol],
+          dojYMD: dojCol !== -1 ? normalizeYMD_(studentData[i][dojCol]) : '',
+          inactiveYMD: inactCol !== -1 ? normalizeYMD_(studentData[i][inactCol]) : ''
         };
         break;
       }
     }
-    
+
     if (!studentInfo) {
       throw new Error(`Student with ID ${studentId} not found`);
     }
-    
+
+    const classSection = studentInfo.className + '-' + studentInfo.section;
+
+    // Reports are scoped to the teacher's assignments (same rule as the daily
+    // report and getSummaryData).
+    if (username) {
+      const assigned = getAssignedClassSections(username);
+      if (!isClassSectionAssigned_(assigned, classSection)) {
+        throw new Error('You are not assigned to class ' + classSection + '.');
+      }
+    }
+
     // Get attendance data for the month
     const attendanceSheet = ss.getSheetByName('Student_Attendance');
     if (!attendanceSheet) throw new Error('Student_Attendance sheet not found');
-    
+
     const attendanceData = attendanceSheet.getDataRange().getValues();
     const headers = attendanceData[0];
     const headerMap = new Map(headers.map((h, i) => [h, i]));
-    
+
     const stdIdColAttendance = headerMap.get('Std_ID');
     const dateCol = headerMap.get('Date');
     const statusCol = headerMap.get('Status');
     const hoursCol = headerMap.has('Hours') ? headerMap.get('Hours') : -1;
-    const categoryCol = headerMap.has('Category') ? headerMap.get('Category') : -1;
-    
-    // Calculate month start and end dates
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0);
-    
-    // Initialize counters
-    let presents = 0;
-    let absents = 0;
-    let leaves = 0;
-    let totalDays = 0;
-    
-    // Process attendance records
-    for (let i = 1; i < attendanceData.length; i++) {
-      const row = attendanceData[i];
-      
-      // Check if this is the right student
-      if (String(row[stdIdColAttendance]) !== String(studentId)) {
-        continue;
-      }
-      
-      // Check date
-      const rowDate = new Date(row[dateCol]);
-      if (rowDate >= startDate && rowDate <= endDate) {
-        const status = String(row[statusCol]).toLowerCase();
-        
-        switch (status) {
-          case 'present':
-            presents++;
-            break;
-          case 'absent':
-            absents++;
-            break;
-          case 'leave':
-            leaves++;
-            break;
+    const typeCol = headerMap.has('Attendance_Type') ? headerMap.get('Attendance_Type') : -1;
+
+    // Calculate month start and end dates (end = last moment of the last day,
+    // so rows on the last day are never cut off).
+    let startDate = new Date(year, month - 1, 1, 0, 0, 0, 0);
+    let endDate = new Date(year, month, 0, 23, 59, 59, 999);
+    const monthStartYMD = startDate.getFullYear() + '-' + String(startDate.getMonth() + 1).padStart(2, '0') + '-' + String(startDate.getDate()).padStart(2, '0');
+    const monthEndYMD = endDate.getFullYear() + '-' + String(endDate.getMonth() + 1).padStart(2, '0') + '-' + String(endDate.getDate()).padStart(2, '0');
+    const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
+
+    // Not enrolled at any point in this month (portal roster rule) → zeros + warning.
+    if (!isEnrolledInMonthYMD_(monthStartYMD, monthEndYMD, studentInfo.dojYMD, studentInfo.inactiveYMD)) {
+      return {
+        ...studentInfo, month: month, year: year,
+        presents: 0, absents: 0, leaves: 0, totalDays: 0, presentPercentage: 0,
+        hours: 0, workingDays: 0, status: 'Inactive',
+        termId: termId ? String(termId).trim() : null, termName: null,
+        warning: 'Student was not enrolled during ' + monthName + ' ' + year + '.'
+      };
+    }
+
+    // ── Term-scoped filtering ──
+    // If termId supplied: intersect month range with the term's date range (from Class_Terms).
+    // Never reads Term_ID from attendance rows — filtering is by Date only.
+    let appliedTermId = null, appliedTermName = null, appliedWarning = null;
+    if (termId) {
+      const range = getTermDateRangeForClass(classSection, termId, recId || null);
+      if (range && range.fromDate && range.toDate) {
+        const tFrom = new Date(range.fromDate + 'T00:00:00');
+        const tTo   = new Date(range.toDate + 'T23:59:59');
+        if (tFrom > startDate) startDate = tFrom;
+        if (tTo   < endDate)   endDate   = tTo;
+        const details = getTermDetails(termId) || {};
+        appliedTermId = String(termId).trim();
+        appliedTermName = details.termName || String(termId).trim();
+        if (startDate > endDate) {
+          appliedWarning = `Selected month is outside the term range ${range.fromDate} to ${range.toDate}. Report is empty.`;
+          return {
+            ...studentInfo, month: month, year: year,
+            presents: 0, absents: 0, leaves: 0, totalDays: 0, presentPercentage: 0,
+            hours: 0, workingDays: 0, status: monthStatusForYMD_(monthStartYMD, monthEndYMD, studentInfo.dojYMD, studentInfo.inactiveYMD),
+            termId: appliedTermId, termName: appliedTermName, warning: appliedWarning
+          };
         }
-        totalDays++;
       }
     }
-    
+    const effStartYMD = normalizeYMD_(startDate);
+    const effEndYMD = normalizeYMD_(endDate);
+
+    // ---- Aggregate this student's rows (portal rule, single pass) ----
+    // Only present/absent/leave count toward Total Days; unknown statuses are
+    // ignored; hours count only on Present rows; Episodic rows are excluded.
+    const rows = [];
+    for (let i = 1; i < attendanceData.length; i++) {
+      const row = attendanceData[i];
+      if (String(row[stdIdColAttendance]) !== String(studentId)) continue;
+      rows.push({
+        stdId: row[stdIdColAttendance],
+        dateYMD: normalizeYMD_(row[dateCol]),
+        status: row[statusCol],
+        hours: hoursCol !== -1 ? row[hoursCol] : 0,
+        type: typeCol !== -1 ? row[typeCol] : ''
+      });
+    }
+    const agg = aggregateMonthlyRows_(rows, effStartYMD, effEndYMD);
+
+    // ---- Working days in the (term-intersected) month ----
+    const workingDays = countWorkingDaysInRange_(classSection, effStartYMD, effEndYMD);
+
     // Calculate percentage
-    const presentPercentage = totalDays > 0 ? (presents / totalDays) * 100 : 0;
-    
+    const presentPercentage = agg.totalDays > 0 ? (agg.presents / agg.totalDays) * 100 : 0;
+
     return {
       ...studentInfo,
       month: month,
       year: year,
-      presents: presents,
-      absents: absents,
-      leaves: leaves,
-      totalDays: totalDays,
-      presentPercentage: Math.round(presentPercentage * 100) / 100 // Round to 2 decimal places
+      presents: agg.presents,
+      absents: agg.absents,
+      leaves: agg.leaves,
+      totalDays: agg.totalDays,
+      presentPercentage: Math.round(presentPercentage * 100) / 100,
+      hours: Math.round((agg.hours || 0) * 100) / 100,
+      workingDays: workingDays,
+      status: monthStatusForYMD_(monthStartYMD, monthEndYMD, studentInfo.dojYMD, studentInfo.inactiveYMD),
+      termId: appliedTermId,
+      termName: appliedTermName,
+      warning: appliedWarning
     };
-    
+
   } catch (error) {
     console.error('Error generating monthly summary:', error);
+    throw error;
+  }
+}
+
+// Monthly Day Wise report (v4 port of the MIS portal's MonthlyBarReport).
+// One row per student, one column per day of the month, plus per-student totals
+// (Present/Absent/Leave, Total Days, Total %, Total Hours) and a class total.
+// Same rules as the v3 Monthly: Student_Data roster (enrolled at some point in
+// the month), Student_Attendance rows, only Present earns hours, unknown
+// statuses ignored in totals, term intersected from Class_Terms, Episodic rows
+// excluded, single assigned class only (no multi-class selection).
+// Percentage is 2dp like the v3 Monthly (the portal Day Wise rounds to whole %).
+function generateStudentDayWiseReport(month, year, classSection, termId, recId, username) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    const studentSheet = ss.getSheetByName('Student_Data');
+    if (!studentSheet) throw new Error('Student_Data sheet not found');
+
+    const attendanceSheet = ss.getSheetByName('Student_Attendance');
+    if (!attendanceSheet) throw new Error('Student_Attendance sheet not found');
+
+    if (!classSection || String(classSection).indexOf('-') === -1) {
+      throw new Error('Invalid class section: ' + classSection);
+    }
+    const parts = String(classSection).split('-');
+    const className = String(parts[0] || '').trim();
+    const section = String(parts[1] || '').trim();
+
+    // Reports are scoped to the teacher's assignments: a direct call can never
+    // show a class the user is not assigned to (the pickers already list
+    // assigned classes only; same rule as the v3 Daily/Monthly reports).
+    if (username) {
+      const assigned = getAssignedClassSections(username);
+      if (!isClassSectionAssigned_(assigned, classSection)) {
+        throw new Error('You are not assigned to class ' + classSection + '.');
+      }
+    }
+
+    month = Number(month); year = Number(year);
+    if (!month || month < 1 || month > 12 || !year) throw new Error('Invalid month/year: ' + month + '/' + year);
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const pad2 = function (n) { return String(n).padStart(2, '0'); };
+    const monthStartYMD = year + '-' + pad2(month) + '-01';
+    const monthEndYMD = year + '-' + pad2(month) + '-' + pad2(daysInMonth);
+    const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
+
+    // ---- Term: intersect the month with the class-section's term range ----
+    // (first ACTIVE Class_Terms row wins, same as the v3 Monthly).
+    let effStartYMD = monthStartYMD, effEndYMD = monthEndYMD;
+    let appliedTermId = null, appliedTermName = null;
+    if (termId) {
+      const range = getTermDateRangeForClass(classSection, termId, recId || null);
+      if (!range) {
+        throw new Error('No term dates set up for ' + classSection + ' in Term ' + termId + '. Add a Class_Terms row first.');
+      }
+      if (range.fromDate > effStartYMD) effStartYMD = range.fromDate;
+      if (range.toDate < effEndYMD) effEndYMD = range.toDate;
+      const details = getTermDetails(termId) || {};
+      appliedTermId = String(termId).trim();
+      appliedTermName = details.termName || String(termId).trim();
+      if (effStartYMD > effEndYMD) {
+        return {
+          month: month, year: year, monthName: monthName,
+          classSection: classSection, className: className, section: section,
+          daysInMonth: daysInMonth, workingDays: 0,
+          termId: appliedTermId, termName: appliedTermName,
+          effStartYMD: effStartYMD, effEndYMD: effEndYMD,
+          rows: [],
+          totals: { presents: 0, absents: 0, leaves: 0, totalDays: 0, hours: 0, percentage: 0, workingDays: 0 },
+          warning: 'Selected month is outside the term range ' + range.fromDate + ' to ' + range.toDate + '. Report is empty.'
+        };
+      }
+    }
+
+    // ---- Roster: Student_Data, class/section + enrolled at some point in the month ----
+    const studentData = studentSheet.getDataRange().getValues();
+    const studentHeaders = studentData[0];
+    const shm = new Map(studentHeaders.map((h, i) => [h, i]));
+    const stdIdCol = shm.get('Std_ID');
+    const nameCol = shm.get('Student_Name');
+    const classCol = shm.get('Student_Class');
+    const sectionCol = shm.get('Student_Section');
+    const dojCol = shm.has('Date_of_Joining') ? shm.get('Date_of_Joining') : -1;
+    const inactCol = shm.has('Inactive_Date') ? shm.get('Inactive_Date') : -1;
+    if (stdIdCol === undefined || nameCol === undefined || classCol === undefined || sectionCol === undefined) {
+      throw new Error('Required columns missing in Student_Data sheet');
+    }
+
+    const roster = [];
+    for (let i = 1; i < studentData.length; i++) {
+      const row = studentData[i];
+      if (String(row[classCol] || '').trim() !== className) continue;
+      if (String(row[sectionCol] || '').trim() !== section) continue;
+      const dojYMD = dojCol !== -1 ? normalizeYMD_(row[dojCol]) : '';
+      const inactYMD = inactCol !== -1 ? normalizeYMD_(row[inactCol]) : '';
+      if (!isEnrolledInMonthYMD_(monthStartYMD, monthEndYMD, dojYMD, inactYMD)) continue;
+      roster.push({ studentId: row[stdIdCol], studentName: row[nameCol], className: className, section: section, dojYMD: dojYMD, inactiveYMD: inactYMD });
+    }
+
+    if (roster.length === 0) {
+      throw new Error('No students enrolled in ' + classSection + ' during ' + monthName + ' ' + year + '.');
+    }
+
+    // ---- Month rows: attendance for the class-section in the month ----
+    const attendanceData = attendanceSheet.getDataRange().getValues();
+    const headers = attendanceData[0];
+    const headerMap = new Map(headers.map((h, i) => [h, i]));
+    const aStdCol = headerMap.get('Std_ID');
+    const aDateCol = headerMap.get('Date');
+    const aStatusCol = headerMap.get('Status');
+    const aClassCol = headerMap.get('Student_Class');
+    const aSectionCol = headerMap.get('Student_Section');
+    const aHoursCol = headerMap.has('Hours') ? headerMap.get('Hours') : -1;
+    const aTypeCol = headerMap.has('Attendance_Type') ? headerMap.get('Attendance_Type') : -1;
+    if (aStdCol === undefined || aDateCol === undefined || aStatusCol === undefined || aClassCol === undefined || aSectionCol === undefined) {
+      throw new Error('Required columns missing in Student_Attendance sheet');
+    }
+
+    const rowsByStudent = {};
+    for (let i = 1; i < attendanceData.length; i++) {
+      const row = attendanceData[i];
+      if (String(row[aClassCol] || '').trim() !== className) continue;
+      if (String(row[aSectionCol] || '').trim() !== section) continue;
+      const dateYMD = normalizeYMD_(row[aDateCol]);
+      if (!dateYMD || dateYMD < monthStartYMD || dateYMD > monthEndYMD) continue;
+      const sid = String(row[aStdCol] || '').trim();
+      if (!sid) continue;
+      if (!rowsByStudent[sid]) rowsByStudent[sid] = [];
+      rowsByStudent[sid].push({
+        stdId: row[aStdCol],
+        dateYMD: dateYMD,
+        status: row[aStatusCol],
+        hours: aHoursCol !== -1 ? row[aHoursCol] : 0,
+        type: aTypeCol !== -1 ? row[aTypeCol] : ''
+      });
+    }
+
+    // ---- Working days in the (term-intersected) month ----
+    const workingSet = getWorkingDatesInRange_(classSection, effStartYMD, effEndYMD);
+    const workingDays = Object.keys(workingSet).length;
+
+    // ---- Build the grid: one row per student, one cell per day ----
+    const cleanName = function (s) { return String(s || '').replace(/[\u00A0\u200B-\u200D\uFEFF]/g, '').trim(); };
+    const rows = roster.map(function (s) {
+      const list = rowsByStudent[String(s.studentId).trim()] || [];
+      const agg = aggregateMonthlyRows_(list, effStartYMD, effEndYMD);
+      const perDay = aggregateDayWiseRows_(list, effStartYMD, effEndYMD);
+      return dayWiseRow_(s, agg, perDay, workingSet, effStartYMD, effEndYMD, daysInMonth, monthStartYMD, monthEndYMD);
+    });
+    rows.sort(function (a, b) { return cleanName(a.studentName).localeCompare(cleanName(b.studentName), undefined, { sensitivity: 'base' }); });
+
+    // ---- Class totals (sums; % = total presents / total days) ----
+    const tPresents = rows.reduce(function (sum, r) { return sum + r.presents; }, 0);
+    const tAbsents = rows.reduce(function (sum, r) { return sum + r.absents; }, 0);
+    const tLeaves = rows.reduce(function (sum, r) { return sum + r.leaves; }, 0);
+    const tDays = rows.reduce(function (sum, r) { return sum + r.totalDays; }, 0);
+    const tHours = rows.reduce(function (sum, r) { return sum + (r.hours || 0); }, 0);
+    const totals = {
+      presents: tPresents,
+      absents: tAbsents,
+      leaves: tLeaves,
+      totalDays: tDays,
+      hours: Math.round(tHours * 100) / 100,
+      percentage: tDays > 0 ? Math.round((tPresents / tDays) * 100 * 100) / 100 : 0,
+      workingDays: workingDays
+    };
+
+    return {
+      month: month, year: year, monthName: monthName,
+      classSection: classSection, className: className, section: section,
+      daysInMonth: daysInMonth, workingDays: workingDays,
+      termId: appliedTermId, termName: appliedTermName,
+      effStartYMD: effStartYMD, effEndYMD: effEndYMD,
+      rows: rows, totals: totals, warning: null
+    };
+
+  } catch (error) {
+    console.error('Error generating monthly day wise report:', error);
     throw error;
   }
 }
@@ -2672,7 +3378,9 @@ function getAllStudents(classSection = null) {
     const nameCol = headerMap.get('Student_Name');
     const classCol = headerMap.get('Student_Class');
     const sectionCol = headerMap.get('Student_Section');
-    
+    const dojCol = headerMap.has('Date_of_Joining') ? headerMap.get('Date_of_Joining') : -1;
+    const inactCol = headerMap.has('Inactive_Date') ? headerMap.get('Inactive_Date') : -1;
+
     const students = [];
     
     for (let i = 1; i < studentData.length; i++) {
@@ -2692,7 +3400,9 @@ function getAllStudents(classSection = null) {
         studentName: row[nameCol],
         className: studentClass,
         section: studentSection,
-        classSection: `${studentClass}-${studentSection}`
+        classSection: `${studentClass}-${studentSection}`,
+        dateOfJoining: dojCol !== -1 ? (normalizeYMD_(row[dojCol]) || null) : null,
+        inactiveDate: inactCol !== -1 ? (normalizeYMD_(row[inactCol]) || null) : null
       });
     }
     
@@ -2895,6 +3605,37 @@ function getTermDetails(termId) {
   }
 }
 
+// Report Term picker data (v3 port): all Terms rows for the picker.
+// Terms holds names only; dates live in Class_Terms. Returns [] when the
+// sheet is missing or empty — never throws, so reports keep working
+// (no term picked = no term filtering, portal rule).
+function getReportTerms() {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Terms');
+    if (!sheet) return [];
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return [];
+    const h = data[0].map(function (x) { return String(x).trim(); });
+    const idCol = h.indexOf('Term_ID');
+    if (idCol === -1) return [];
+    const nameCol = h.indexOf('Term_Name');
+    const actCol = h.indexOf('Is_Active');
+    const out = [];
+    for (let i = 1; i < data.length; i++) {
+      const id = String(data[i][idCol] || '').trim();
+      if (!id) continue;
+      out.push({
+        Term_ID: id,
+        Term_Name: nameCol !== -1 ? String(data[i][nameCol] || '').trim() : id,
+        Is_Active: actCol !== -1 ? data[i][actCol] : false
+      });
+    }
+    return out;
+  } catch (e) {
+    Logger.log('Error in getReportTerms: ' + e.message);
+    return [];
+  }
+}
 /**
  * Get all ACTIVE class-term assignments
  * FIXED: Uses dates from Class_Terms, not Terms
@@ -4410,3 +5151,257 @@ function getMarkedClassSectionsForEvent(eventName, date) {
   }
   return Array.from(marked);
 }
+
+
+// ==================== TERM REPORTING — PHASE 1 (ADDITIONS ONLY) ====================
+// These are pure additions. They do not modify any existing function.
+// They are not called by any existing code. Nothing in the app changes behavior.
+// Phase 2 (later) will wire the frontend to these.
+
+/**
+ * Parse a Class_Terms.Class_Section cell into tokens.
+ * Accepts: "10-A" | "10-A,10-B" | "{I,II,IV}" | "{I,II,III-B},HRE-A"
+ * Returns: ["10-A"] | ["10-A","10-B"] | ["I","II","IV"] | ["I","II","III-B","HRE-A"]
+ */
+function parseClassCell_(cell) {
+  let s = String(cell || '').trim();
+  if (!s) return [];
+  s = s.replace(/[{}]/g, '');
+  return s.split(',').map(t => t.trim()).filter(t => t.length > 0);
+}
+
+/**
+ * Does one token match a concrete class-section?
+ *   "I-A" vs "I-A"    → true   (exact section)
+ *   "I"   vs "I-A"    → true   (bare class, any section)
+ *   "I"   vs "IBT-A"  → false  (different class)
+ *   "I-B" vs "I-A"    → false
+ */
+function tokenMatches_(token, classSection) {
+  if (!token || !classSection) return false;
+  if (token.indexOf('-') !== -1) return token === classSection;
+  const dash = classSection.indexOf('-');
+  const cls  = dash === -1 ? classSection : classSection.slice(0, dash);
+  return token === cls;
+}
+
+/**
+ * Does a whole Class_Terms.Class_Section cell match a concrete class-section?
+ */
+function classCellMatches_(cell, classSection) {
+  const tokens = parseClassCell_(cell);
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokenMatches_(tokens[i], classSection)) return true;
+  }
+  return false;
+}
+
+/**
+ * Get all terms ever assigned to a given class-section.
+ * Returns newest-start-first. Reads Class_Terms, expands brace/comma tokens.
+ */
+function getTermsForClassSection(classSection, recId) {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Class_Terms');
+    if (!sheet) return [];
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return [];
+
+    const h = data[0].map(x => String(x).trim());
+    const clsCol   = h.indexOf('Class_Section');
+    const termCol  = h.indexOf('Term_ID');
+    const startCol = h.indexOf('Start_Date');
+    const endCol   = h.indexOf('End_Date');
+    const activeCol = h.indexOf('Is_Active');
+    const recCol   = h.indexOf('REC_ID');
+    if (clsCol === -1 || termCol === -1 || startCol === -1 || endCol === -1) return [];
+
+    const out = [];
+    const seen = new Set();
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (!row[termCol]) continue;
+      if (!classCellMatches_(row[clsCol], classSection)) continue;
+      if (recId && recCol !== -1 && String(row[recCol]).trim() !== String(recId).trim()) continue;
+
+      const termId = String(row[termCol]).trim();
+      const startYMD = normalizeYMD_(row[startCol]);
+      const endYMD   = normalizeYMD_(row[endCol]);
+      const key = termId + '|' + startYMD + '|' + endYMD;
+
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const termDetails = getTermDetails(termId) || {};
+      out.push({
+        termId: termId,
+        termName: termDetails.termName || termId,
+        startDate: startYMD,
+        endDate: endYMD,
+        isActive: activeCol !== -1 ? (row[activeCol] === true || row[activeCol] === 'TRUE') : false
+      });
+    }
+
+    out.sort((a, b) => String(b.startDate).localeCompare(String(a.startDate)));
+    return out;
+  } catch (e) {
+    Logger.log('Error in getTermsForClassSection: ' + e.message);
+    return [];
+  }
+}
+
+/**
+ * Get the date range for (classSection, termId).
+ * Portal rule (v4): FIRST matching ACTIVE Class_Terms row wins (sheet order),
+ * REC-matched when recId is given. No merging across rows or RECs.
+ * Returns {termId, fromDate, toDate, segments} or null.
+ */
+function getTermDateRangeForClass(classSection, termId, recId) {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Class_Terms');
+    if (!sheet) return null;
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return null;
+
+    const h = data[0].map(x => String(x).trim());
+    const clsCol   = h.indexOf('Class_Section');
+    const termCol  = h.indexOf('Term_ID');
+    const startCol = h.indexOf('Start_Date');
+    const endCol   = h.indexOf('End_Date');
+    const activeCol = h.indexOf('Is_Active');
+    const recCol   = h.indexOf('REC_ID');
+    if (clsCol === -1 || termCol === -1 || startCol === -1 || endCol === -1) return null;
+
+    const rows = [];
+    for (let i = 1; i < data.length; i++) {
+      rows.push({
+        Class_Section: data[i][clsCol],
+        Term_ID: data[i][termCol],
+        Is_Active: activeCol !== -1 ? data[i][activeCol] : false,
+        Start_Date: data[i][startCol],
+        End_Date: data[i][endCol],
+        REC_ID: recCol !== -1 ? data[i][recCol] : ''
+      });
+    }
+    const picked = pickTermRange_(rows, classSection, termId, recId);
+    if (!picked) return null;
+
+    return {
+      termId: picked.termId,
+      fromDate: picked.fromDate,
+      toDate: picked.toDate,
+      segments: [{ fromDate: picked.fromDate, toDate: picked.toDate, isActive: true }]
+    };
+  } catch (e) {
+    Logger.log('Error in getTermDateRangeForClass: ' + e.message);
+    return null;
+  }
+}
+
+// ==================== END TERM REPORTING PHASE 1 ====================
+
+
+
+// ==================== TERM REPORTING — PHASE 1 TESTS ====================
+
+function testParseClassCell() {
+  const cases = [
+    '10-A',
+    '10-A,10-B,10-C',
+    '{I,II,IV}',
+    '{I,II,III-B},HRE-A,V-C',
+    '{I,II,III-B,IV,V-C,VI,HRE,XI,VIII-A}',
+    '  { I , II } ',
+    ''
+  ];
+  cases.forEach(c => {
+    Logger.log(JSON.stringify(c) + '  →  ' + JSON.stringify(parseClassCell_(c)));
+  });
+}
+
+function testClassCellMatches() {
+  const cell = '{I,II,III-B,IV,V-C,VI,HRE,XI,VIII-A}';
+  const targets = [
+    'I-A', 'I-B', 'II-A', 'III-A', 'III-B', 'III-C',
+    'IV-A', 'IV-D', 'V-A', 'V-C', 'VI-B', 'HRE-A',
+    'XI-D', 'VIII-A', 'VIII-B', 'VII-A', 'IBT-A'
+  ];
+  targets.forEach(t => {
+    Logger.log(t + '  →  ' + classCellMatches_(cell, t));
+  });
+}
+
+function testGetTermsForClassSection() {
+  Logger.log(JSON.stringify(getTermsForClassSection('10-A', null), null, 2));
+  Logger.log(JSON.stringify(getTermsForClassSection('I-A', null), null, 2));
+  Logger.log(JSON.stringify(getTermsForClassSection('VII-A', null), null, 2));
+  Logger.log(JSON.stringify(getTermsForClassSection('HRE-A', null), null, 2));
+}
+
+function testGetTermDateRange() {
+  Logger.log(JSON.stringify(getTermDateRangeForClass('10-A', '2025-2026', null), null, 2));
+  Logger.log(JSON.stringify(getTermDateRangeForClass('I-A', '2025-2026', null), null, 2));
+  Logger.log(JSON.stringify(getTermDateRangeForClass('VII-A', '2025-2026', null), null, 2));
+  Logger.log(JSON.stringify(getTermDateRangeForClass('9-C', '2025-2026-A', null), null, 2));
+}
+
+
+// ==================== TERM REPORTING — PHASE 2 ====================
+
+/**
+ * Check whether a specific date falls inside a term's date range for a class-section.
+ * Read-only. Returns { termId, termName, fromDate, toDate, dateInsideRange, warning }
+ * or null if the term range can't be resolved.
+ * Used by the Daily report to decide whether to show an "outside term" warning.
+ */
+function checkDateInTerm(classSection, termId, date) {
+  try {
+    if (!classSection || !termId || !date) return null;
+    const range = getTermDateRangeForClass(classSection, termId, null);
+    if (!range) return null;
+    const dateYMD = normalizeYMD_(date);
+    const inside = dateYMD >= range.fromDate && dateYMD <= range.toDate;
+    const details = getTermDetails(termId) || {};
+    return {
+      termId: String(termId).trim(),
+      termName: details.termName || String(termId).trim(),
+      fromDate: range.fromDate,
+      toDate: range.toDate,
+      dateInsideRange: inside,
+      warning: inside
+        ? null
+        : `Selected date ${dateYMD} is outside the term range ${range.fromDate} to ${range.toDate}. Report may be empty.`
+    };
+  } catch (e) {
+    Logger.log('Error in checkDateInTerm: ' + e.message);
+    return null;
+  }
+}
+
+
+
+function TEST_STEP1() {
+  Logger.log('=== A. checkDateInTerm — I-A, 2025-2026, 2025-11-15 (expect inside:true) ===');
+  Logger.log(JSON.stringify(checkDateInTerm('I-A', '2025-2026', '2025-11-15'), null, 2));
+
+  Logger.log('=== B. checkDateInTerm — I-A, 2025-2026, 2024-03-01 (expect inside:false) ===');
+  Logger.log(JSON.stringify(checkDateInTerm('I-A', '2025-2026', '2024-03-01'), null, 2));
+
+  Logger.log('=== C. checkDateInTerm — VIII-A, 2026-2027, 2026-08-15 (expect inside:true) ===');
+  Logger.log(JSON.stringify(checkDateInTerm('VIII-A', '2026-2027', '2026-08-15'), null, 2));
+
+  Logger.log('=== D. checkDateInTerm — I-A, 2026-2027, 2026-08-15 (expect inside:false) ===');
+  Logger.log(JSON.stringify(checkDateInTerm('I-A', '2026-2027', '2026-08-15'), null, 2));
+
+  // Replace 3543 with a real Std_ID that has attendance in Oct 2025
+  Logger.log('=== E. Monthly — no term (should behave like today) ===');
+  Logger.log(JSON.stringify(generateStudentMonthlySummary('3543', 10, 2025), null, 2));
+
+  Logger.log('=== F. Monthly — WITH term 2025-2026, Oct 2025 (expect same counts) ===');
+  Logger.log(JSON.stringify(generateStudentMonthlySummary('3543', 10, 2025, '2025-2026'), null, 2));
+
+  Logger.log('=== G. Monthly — WITH term 2025-2026, Mar 2024 (expect 0s + warning) ===');
+  Logger.log(JSON.stringify(generateStudentMonthlySummary('3543', 3, 2024, '2025-2026'), null, 2));
+}
+

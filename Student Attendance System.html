@@ -1043,6 +1043,14 @@
     .nav-bar .nav-btn:last-child {
     margin-left: auto;  /* This pushes the logout button to the right */
 }
+
+    /* Report tabs (v5.2): one report form at a time; Bootstrap nav-tabs
+       for structure, app theme variables so the active tab matches the
+       card in light and dark mode. */
+    #reportTabs { flex-wrap: wrap; }
+    #reportTabs .nav-link { color: var(--gray-700); font-weight: 600; }
+    #reportTabs .nav-link:hover { color: var(--primary); }
+    #reportTabs .nav-link.active { color: var(--primary); background: var(--card-bg); border-bottom-color: var(--card-bg); }
     
     .popup, .logout-popup, .password-popup, .submission-popup {
       position: fixed;
@@ -2369,14 +2377,34 @@ body:has(#loginPage:not(.d-none)) .connection-pill { display: none; }
       <button class="nav-btn" onclick="showLogoutPopup()"><i class="fas fa-sign-out-alt"></i></button>
     </div>
     
+    <!-- Report tabs (v5.2): one report form at a time. Switching tabs only
+         shows/hides panels and never resets any form values. -->
+    <ul class="nav nav-tabs mb-3" id="reportTabs">
+      <li class="nav-item">
+        <button type="button" class="nav-link active" id="reportTabDaily" onclick="switchReportTab('daily')">Daily</button>
+      </li>
+      <li class="nav-item">
+        <button type="button" class="nav-link" id="reportTabMonthly" onclick="switchReportTab('monthly')">Monthly Summary</button>
+      </li>
+      <li class="nav-item">
+        <button type="button" class="nav-link" id="reportTabDayWise" onclick="switchReportTab('dayWise')">Monthly Day Wise</button>
+      </li>
+    </ul>
+    
     <div class="row">
       <!-- Daily Attendance Report -->
-      <div class="col-md-6 mb-4">
+      <div class="col-12 mb-4" id="reportTabPanelDaily">
         <div class="dashboard-card">
           <h4><i class="fas fa-calendar-day me-2"></i>Daily Attendance Report</h4>
           <p class="text-muted">Download attendance for a specific date and class</p>
           
           <form id="dailyReportForm">
+            <div class="mb-3">
+              <label for="reportTerm" class="form-label">Term (optional)</label>
+              <select class="form-select" id="reportTerm" onchange="document.getElementById('reportDate').value=''">
+                <option value="" selected>All Terms</option>
+              </select>
+            </div>
             <div class="mb-3">
               <label for="reportDate" class="form-label">Date</label>
               <input type="date" class="form-control" id="reportDate" required>
@@ -2413,7 +2441,7 @@ body:has(#loginPage:not(.d-none)) .connection-pill { display: none; }
       </div>
       
       <!-- Monthly Summary Report -->
-      <div class="col-md-6 mb-4">
+      <div class="col-12 mb-4" id="reportTabPanelMonthly" style="display: none;">
         <div class="dashboard-card">
           <h4><i class="fas fa-chart-line me-2"></i>Monthly Summary Report</h4>
           <p class="text-muted">Download monthly summary for student(s)</p>
@@ -2435,6 +2463,12 @@ body:has(#loginPage:not(.d-none)) .connection-pill { display: none; }
               </div>
             </div>
             
+            <div class="mb-3">
+              <label for="reportMonthlyTerm" class="form-label">Term (optional)</label>
+              <select class="form-select" id="reportMonthlyTerm" onchange="document.getElementById('reportMonth').value=''">
+                <option value="" selected>All Terms</option>
+              </select>
+            </div>
             <div class="mb-3">
               <label for="reportMonthlyClassSection" class="form-label">Class Section</label>
               <select class="form-select" id="reportMonthlyClassSection" required onchange="handleClassSelection()">
@@ -2474,6 +2508,56 @@ body:has(#loginPage:not(.d-none)) .connection-pill { display: none; }
             
             <button type="submit" class="btn btn-primary w-100">
               <i class="fas fa-download me-2"></i>Download Summary
+            </button>
+          </form>
+        </div>
+      </div>
+      
+      <!-- Monthly Day Wise Report -->
+      <div class="col-12 mb-4" id="reportTabPanelDayWise" style="display: none;">
+        <div class="dashboard-card">
+          <h4><i class="fas fa-calendar-alt me-2"></i>Monthly Day Wise Report</h4>
+          <p class="text-muted">Day-by-day grid for one month and class</p>
+          
+          <form id="dayWiseReportForm">
+            <div class="mb-3">
+              <label for="reportDayWiseTerm" class="form-label">Term (optional)</label>
+              <select class="form-select" id="reportDayWiseTerm" onchange="document.getElementById('reportDayWiseMonth').value=''">
+                <option value="" selected>All Terms</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label for="reportDayWiseClassSection" class="form-label">Class Section</label>
+              <select class="form-select" id="reportDayWiseClassSection" required>
+                <option value="" disabled selected>Select Class Section</option>
+              </select>
+            </div>
+            
+            <div class="mb-3">
+              <label for="reportDayWiseMonth" class="form-label">Month</label>
+              <select class="form-select" id="reportDayWiseMonth" required>
+                <option value="" disabled selected>Select Month</option>
+              </select>
+            </div>
+            
+            <div class="mb-3">
+              <label class="form-label">Format</label>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="dayWiseFormat" id="dayWisePNG" value="png" checked>
+                <label class="form-check-label" for="dayWisePNG">
+                  <i class="fas fa-file-image me-1 text-primary"></i> PNG (High Quality)
+                </label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="dayWiseFormat" id="dayWiseCSV" value="csv">
+                <label class="form-check-label" for="dayWiseCSV">
+                  <i class="fas fa-file-csv me-1 text-success"></i> CSV
+                </label>
+              </div>
+            </div>
+            
+            <button type="submit" class="btn btn-primary w-100">
+              <i class="fas fa-download me-2"></i>Download Day Wise Report
             </button>
           </form>
         </div>
@@ -2757,77 +2841,12 @@ let scannerPopupWin = null;
 
 let episodicStudentData = [];
 let episodicSelectedStatuses = new Map(); // Stores 'Present' or 'Not Applicable' for each student
-let pendingEpisodicDate = null; 
 let currentEventName = '';  // Store current event name for updates
 let episodicEventsForDate = [];        // events for the selected date + class
 let selectedEpisodicEvent = null;
 let episodicEventsListData = [];       // events shown in the Episodic Events screen
 let editingEventId = null;             // set when editing (null = create mode)
 let episodicEditMarked = []; 
-function showPasswordPopupForEpisodic(date) {
-  pendingEpisodicDate = date;
-  
-  const passwordPopup = document.getElementById("passwordPopup");
-  const popupTitle = passwordPopup.querySelector("h3");
-  const originalTitle = popupTitle.textContent;
-  popupTitle.textContent = "Verify Previous Date Access";
-  
-  let instruction = document.getElementById("episodicDateInstruction");
-  if (!instruction) {
-    instruction = document.createElement("p");
-    instruction.id = "episodicDateInstruction";
-    instruction.style.marginBottom = "15px";
-    instruction.style.fontSize = "14px";
-    passwordPopup.insertBefore(instruction, passwordPopup.querySelector("form"));
-  }
-  instruction.textContent = `You are trying to mark episodic attendance for ${date}. Enter your previous date password to continue.`;
-  
-  const form = document.getElementById("passwordForm");
-  const originalSubmit = form.onsubmit;
-  
-  form.onsubmit = function(e) {
-    e.preventDefault();
-    const password = document.getElementById("previousPassword").value;
-    
-    showLoading(true, "Verifying permission...");
-    
-    google.script.run
-      .withSuccessHandler(isAllowed => {
-        showLoading(false);
-        if (isAllowed) {
-          closePasswordPopup();
-          loadEpisodicStudentList();
-          showPopup("Success", `You can now mark episodic attendance for ${pendingEpisodicDate}`);
-        } else {
-          showPopup("Error", "You don't have permission to mark attendance for this date.");
-          document.getElementById("episodicDate").value = getTodayDate();
-          loadEpisodicStudentList();
-        }
-        pendingEpisodicDate = null;
-        form.onsubmit = originalSubmit;
-        popupTitle.textContent = originalTitle;
-        const instructionElem = document.getElementById("episodicDateInstruction");
-        if (instructionElem) instructionElem.remove();
-      })
-      .withFailureHandler(err => {
-        showLoading(false);
-        showPopup("Error", err.message);
-        document.getElementById("episodicDate").value = getTodayDate();
-        loadEpisodicStudentList();
-        pendingEpisodicDate = null;
-        form.onsubmit = originalSubmit;
-        popupTitle.textContent = originalTitle;
-        const instructionElem = document.getElementById("episodicDateInstruction");
-        if (instructionElem) instructionElem.remove();
-      })
-      .checkPreviousDatePermission(currentUser.username, pendingEpisodicDate, 'Episodic');
-  };
-  
-  document.getElementById("passwordPopup").classList.add("active");
-  document.getElementById("modalBackdrop").classList.add("active");
-  document.getElementById("previousPassword").value = "";
-}
-
 function showEpisodicAttendanceForm() {
   if (!currentUser || !currentUser.classSection) {
     showPopup("Error", "Please select a class from Dashboard first.");
@@ -2856,16 +2875,24 @@ function showEpisodicAttendanceForm() {
   });
 }
 
-// Date dropdown: today + allowed previous dates, ascending (no future, no password)
+// Date dropdown: today + allowed previous dates with expiry, ascending (no future, no password)
 function populateEpisodicDates(onReady) {
   const sel = document.getElementById("episodicDate");
   const today = getTodayDate();
   google.script.run
     .withSuccessHandler(dates => {
-      const prev = (dates || []).filter(d => d < today);            // only past allowed dates
-      const all = Array.from(new Set([...prev, today])).sort();     // YYYY-MM-DD sorts ascending
+      const list = (dates || []).map(x => (typeof x === 'string' ? { date: x, expiresAt: '' } : x));
+      const prev = list.filter(x => x.date && x.date < today);      // only past allowed dates
+      const seen = {};
+      const all = [];
+      prev.forEach(x => { if (!seen[x.date]) { seen[x.date] = true; all.push(x); } });
+      all.push({ date: today, expiresAt: '' });
+      all.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);   // YYYY-MM-DD sorts ascending
       sel.innerHTML = "";
-      all.forEach(d => sel.appendChild(new Option(formatDateDMY(d) + (d === today ? " (Today)" : ""), d)));
+      all.forEach(x => {
+        const label = formatDateDMY(x.date) + (x.date === today ? " (Today)" : (x.expiresAt ? " \u2014 expires " + x.expiresAt : ""));
+        sel.appendChild(new Option(label, x.date));
+      });
       sel.value = today;                 // default to today
       loadEpisodicEventsForDate(onReady);       // load events for the default date
     })
@@ -2875,10 +2902,9 @@ function populateEpisodicDates(onReady) {
       sel.value = today;
       loadEpisodicEventsForDate(onReady);
     })
-    .getAllowedPreviousDates(currentUser.username, 'Episodic');
+    .getAllowedPreviousDates(currentUser.username, 'Episodic', currentUser.classSection);
 }
 
-// After a date is chosen, fill the Event dropdown from the Episodic_Events sheet
 function loadEpisodicEventsForDate(onReady) {
   const classSection = currentUser ? currentUser.classSection : null;
   const date = document.getElementById("episodicDate").value;
@@ -3531,13 +3557,18 @@ function populateEpisodicEventDates() {
   sel.innerHTML = '<option value="" disabled selected>Loading dates...</option>';
   google.script.run
     .withSuccessHandler(dates => {
-      const prev = (dates || []).filter(d => d < today);
-      const all = Array.from(new Set([...prev, ...future])).sort();   // ascending
+      const list = (dates || []).map(x => (typeof x === 'string' ? { date: x, expiresAt: '' } : x));
+      const prev = list.filter(x => x.date && x.date < today);
+      const byDate = {};
+      prev.forEach(x => { if (!byDate[x.date]) byDate[x.date] = x; });
+      future.forEach(d => { if (!byDate[d]) byDate[d] = { date: d, expiresAt: '' }; });
+      const all = Object.keys(byDate).sort();   // ascending
       sel.innerHTML = "";
       all.forEach(d => {
+        const x = byDate[d];
         let label = formatDateDMY(d);
         if (d === today) label += " (Today)";
-        else if (d < today) label += " (Previous)";
+        else if (d < today) label += " (Previous)" + (x.expiresAt ? " \u2014 expires " + x.expiresAt : "");
         sel.appendChild(new Option(label, d));
       });
       sel.value = today;
@@ -5235,8 +5266,14 @@ function handleLogout() {
 }
 
 // ------------------------------  SUMMARY FUNCTIONS  ------------------------------
-function showSummary() { 
+function showSummary(dateStr) {
   if (!userPermissions.canSeeSummary) return showPopup("Error", "No permission"); 
+  // v5.1: date picker. No date (or a bad one) = today (Asia/Karachi).
+  const pickedDate = (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) ? dateStr : getTodayDate();
+  const todayStr = getTodayDate();
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const dp = pickedDate.split('-');
+  const displayDate = monthNames[Number(dp[1]) - 1] + ' ' + Number(dp[2]) + ', ' + dp[0];
   showLoading(true, "Loading summary..."); 
   google.script.run
     .withSuccessHandler(data => { 
@@ -5245,17 +5282,12 @@ function showSummary() {
       // Calculate totals
       let totalPresent = 0, totalAbsent = 0, totalLeaves = 0, totalStudents = 0;
       
-      // Get current date for display
-      const currentDate = new Date().toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
-      });
       
       let html = `
         <div class="text-center mb-3" style="padding: 12px; background: var(--gray-100); border-radius: 12px;">
           <i class="fas fa-calendar-alt me-2" style="color: var(--primary);"></i>
-          <strong>Summary Date:</strong> ${currentDate}
+          <strong>Summary Date:</strong> ${displayDate}
+          <input type="date" id="summaryDatePicker" class="form-control d-inline-block" style="width: auto; margin-left: 10px; vertical-align: middle;" value="${pickedDate}" max="${todayStr}" onchange="showSummary(this.value)">
         </div>
         <div class="table-responsive">
           <table class="table table-bordered" style="background: var(--card-bg);">
@@ -5359,7 +5391,11 @@ html += `
       document.getElementById("summaryTable").innerHTML = html; 
       handleNavigation("summaryContainer"); 
     })
-    .getSummaryData(currentUser.username); 
+    .withFailureHandler(err => {
+      showLoading(false);
+      showPopup("Error", "Failed to load summary: " + (err && err.message ? err.message : err));
+    })
+    .getSummaryData(currentUser.username, null, pickedDate);
 }
 
 function downloadSummaryAsPNG() {
@@ -5372,6 +5408,8 @@ function downloadSummaryAsPNG() {
   wrapper.setAttribute('data-theme', 'light');
   wrapper.style.cssText = 'position:absolute; top:-9999px; left:-9999px; width:1200px; background:#ffffff; padding:24px; font-family:Inter, system-ui, sans-serif;';
   wrapper.innerHTML = el.innerHTML;
+  // v5.1: hide the date picker in the PNG (the banner text already shows the date)
+  wrapper.querySelectorAll('#summaryDatePicker').forEach(p => { p.style.display = 'none'; });
   // Horizontal-scroll wrapper ko full-width karo taake table poori render ho
   wrapper.querySelectorAll('.table-responsive').forEach(r => {
     r.style.overflow = 'visible';
@@ -5391,7 +5429,9 @@ function downloadSummaryAsPNG() {
     if (wrapper.parentNode) document.body.removeChild(wrapper);
     showLoading(false);
     const link = document.createElement('a');
-    link.download = `class_summary_${getTodayDate()}.png`;
+    const dp = document.getElementById('summaryDatePicker');
+    const fileDate = (dp && dp.value) ? dp.value : getTodayDate();
+    link.download = `class_summary_${fileDate}.png`;
     link.href = canvas.toDataURL('image/png');
     link.click();
     showPopup("Success", "Summary PNG downloaded!");
@@ -5464,17 +5504,21 @@ function verifyPreviousPassword(e) {
           .withSuccessHandler(dates => { 
             let sel = document.getElementById("previousDates"); 
             sel.innerHTML = '<option disabled selected>Select Date</option>'; 
-            dates.forEach(d => sel.appendChild(new Option(d, d))); 
+            (dates || []).forEach(x => {
+              const d = (typeof x === 'string') ? { date: x, expiresAt: '' } : x;
+              const label = formatDateDMY(d.date) + (d.expiresAt ? ' \u2014 expires ' + d.expiresAt : '');
+              sel.appendChild(new Option(label, d.date));
+            }); 
             handleNavigation("dateSelectionContainer"); 
           })
-          .getAllowedPreviousDates(currentUser.username, 'Normal');
+          .getAllowedPreviousDates(currentUser.username, 'Normal', currentUser.classSection);
       } else showPopup("Error", "Invalid password"); 
     })
     .withFailureHandler(err => { 
       showLoading(false); 
       showPopup("Error", err.message); 
     })
-    .verifyPreviousPassword(currentUser.username, pwd, 'Normal');
+    .verifyPreviousPassword(currentUser.username, pwd, 'Normal', null, currentUser.classSection);
 }
 
 function verifyAndShowPreviousDates(mode) { 
@@ -5523,7 +5567,7 @@ function verifyAndShowPreviousDates(mode) {
       showLoading(false);
       showPopup("Access Denied", err.message);
     })
-    .checkPreviousDatePermission(currentUser.username, date, 'Normal'); 
+    .checkPreviousDatePermission(currentUser.username, date, 'Normal', currentUser.classSection); 
 }
 
 
@@ -5739,6 +5783,47 @@ function onLoadStudents(studentList) {
 
 // =============== REPORT DOWNLOAD FUNCTIONS ===============
 
+// Term picker for the reports (v3 port): Terms hold names only, dates live in
+// Class_Terms (checked server-side). Active terms first, then inactive —
+// same ordering as the MIS portal's termPickerOptions_. No term picked =
+// no term filtering (reports behave as before).
+let reportTermsList = [];
+
+function reportTermIsActive_(v) {
+  return String(v == null ? '' : v).trim().toLowerCase() === 'true';
+}
+
+function loadReportTerms() {
+  const fill = function (terms) {
+    reportTermsList = terms || [];
+    const act = reportTermsList.filter(function (t) { return reportTermIsActive_(t.Is_Active); });
+    const inact = reportTermsList.filter(function (t) { return !reportTermIsActive_(t.Is_Active); });
+    ['reportTerm', 'reportMonthlyTerm', 'reportDayWiseTerm'].forEach(function (id) {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      const prev = sel.value;
+      sel.innerHTML = '<option value="" selected>All Terms</option>';
+      act.concat(inact).forEach(function (t) {
+        sel.appendChild(new Option(t.Term_Name || t.Term_ID, t.Term_ID));
+      });
+      sel.value = prev; // keep the previous pick when re-loading
+    });
+  };
+  google.script.run
+    .withSuccessHandler(fill)
+    .withFailureHandler(function () { /* Terms unavailable: picker stays on "All Terms" */ })
+    .getReportTerms();
+}
+
+// Enrolled at any point in [startYMD, endYMD]? Portal rule, on yyyy-MM-dd
+// strings (no timezone shift). Inactive_Date is the first day NOT active.
+function isEnrolledInMonthYMD_(startYMD, endYMD, dojYMD, inactiveYMD) {
+  const d = String(dojYMD || '').trim();
+  const ia = String(inactiveYMD || '').trim();
+  const joinedByMonthEnd = !d || d <= endYMD;
+  const notLeftBeforeStart = !ia || ia >= startYMD;
+  return joinedByMonthEnd && notLeftBeforeStart;
+}
 function showReportDownload() {
   if (!userPermissions.canDownloadReports && !userPermissions.canDownloadAllReports) {
     showPopup('Error', 'You do not have permission to download reports.', 'error');
@@ -5748,8 +5833,33 @@ function showReportDownload() {
   handleNavigation('reportDownloadContainer');
   populateReportClassSections();
   populateMonthlyReportClassSections();
+  populateDayWiseReportClassSections();
+  populateDayWiseMonths();
+  loadReportTerms();
   document.getElementById('reportDate').value = getTodayDate();
   setupReportForms();
+  switchReportTab('daily');
+}
+
+// Reports screen tabs (v5.2): show one report form at a time. A tab switch
+// only shows/hides panels and toggles the active tab — it never re-populates
+// any dropdown and never resets any input, so a choice made in one tab stays
+// picked when you switch away and back.
+function switchReportTab(tab) {
+  var panels = {
+    daily: document.getElementById('reportTabPanelDaily'),
+    monthly: document.getElementById('reportTabPanelMonthly'),
+    dayWise: document.getElementById('reportTabPanelDayWise')
+  };
+  var buttons = {
+    daily: document.getElementById('reportTabDaily'),
+    monthly: document.getElementById('reportTabMonthly'),
+    dayWise: document.getElementById('reportTabDayWise')
+  };
+  Object.keys(panels).forEach(function(key) {
+    if (panels[key]) panels[key].style.display = (key === tab) ? '' : 'none';
+    if (buttons[key]) buttons[key].classList.toggle('active', key === tab);
+  });
 }
 
 function populateReportClassSections() {
@@ -5928,63 +6038,81 @@ function setupReportForms() {
       generateMonthlyReport();
     };
   }
+  
+  const dayWiseForm = document.getElementById('dayWiseReportForm');
+  if (dayWiseForm) {
+    dayWiseForm.onsubmit = function(e) {
+      e.preventDefault();
+      generateDayWiseReport();
+    };
+  }
 }
 
 function generateDailyReport() {
   const date = document.getElementById('reportDate').value;
   const classSection = document.getElementById('reportClassSection').value;
-  const format = document.querySelector('input[name="dailyFormat"]:checked')?.value || 'csv';
+  const termId = document.getElementById('reportTerm') ? document.getElementById('reportTerm').value : '';
+  const format = document.querySelector('input[name="dailyFormat"]:checked').value;
   
-  if (!date || !classSection) {
-    showPopup('Error', 'Please select date and class section.', 'error');
+  if (!date) {
+    showPopup('Error', 'Please select a date.', 'error');
     return;
   }
   
-  showLoading(true, `Generating report...`);
+  if (!classSection) {
+    showPopup('Error', 'Please select a class section.', 'error');
+    return;
+  }
+  
+  showLoading(true, "Generating daily report...");
   
   google.script.run
     .withSuccessHandler(reportData => {
       showLoading(false);
-      
       if (!reportData || reportData.length === 0) {
-        showPopup('Info', 'No attendance data found.', 'info');
+        showPopup('Info', 'No attendance data found for the selected date and class.', 'info');
         return;
       }
       
+      // Format data for report (hours earned + working hours from Daily_Hours_Setup)
       const formattedData = reportData.map(row => ({
         'Student Name': row.studentName,
         'Student ID': row.studentId,
         'Class': row.className,
         'Section': row.section,
         'Date': row.date,
-        'Status': row.status
+        'Status': row.status,
+        'Hours': row.hours,
+        'Working Hours': row.workingHours
       }));
       
-      const filename = `attendance_${classSection.replace(/\s+/g, '_')}_${date}`;
-      
       if (format === 'csv') {
-        downloadCSV(formattedData, `${filename}.csv`);
+        downloadCSV(formattedData, `daily_report_${date}_${classSection}.csv`);
       } else {
-        generatePNGReport(formattedData, filename, 'Daily Attendance Report');
+        generateDailyPNGReport(formattedData, `daily_report_${date}_${classSection}`, 'Daily Attendance Report', `Class ${classSection.split('-')[0]} · Section ${classSection.split('-')[1]} · ${date}`);
       }
-      
-      addToDownloadHistory(`Attendance - ${classSection} - ${date}`, format.toUpperCase());
     })
     .withFailureHandler(error => {
       showLoading(false);
       showPopup('Error', `Failed to generate report: ${error.message}`, 'error');
     })
-    .generateStudentAttendanceReport(date, classSection);
+    .generateStudentAttendanceReport(date, classSection, termId, (currentUser && currentUser.recId) || '', (currentUser && currentUser.username) || '');
 }
 
 function generateMonthlyReport() {
-  const reportType = document.querySelector('input[name="monthlyReportType"]:checked')?.value;
+  const reportType = document.querySelector('input[name="monthlyReportType"]:checked').value;
   const classSection = document.getElementById('reportMonthlyClassSection').value;
+  const termId = document.getElementById('reportMonthlyTerm') ? document.getElementById('reportMonthlyTerm').value : '';
+  const format = document.querySelector('input[name="monthlyFormat"]:checked').value;
   const monthValue = document.getElementById('reportMonth').value;
-  const format = document.querySelector('input[name="monthlyFormat"]:checked')?.value || 'csv';
   
-  if (!classSection || !monthValue) {
-    showPopup('Error', 'Please fill all fields.', 'error');
+  if (!classSection) {
+    showPopup('Error', 'Please select a class section.', 'error');
+    return;
+  }
+  
+  if (!monthValue) {
+    showPopup('Error', 'Please select a month.', 'error');
     return;
   }
   
@@ -5992,213 +6120,166 @@ function generateMonthlyReport() {
   const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
   
   if (reportType === 'single') {
+    // Single student report
     const studentId = document.getElementById('reportStudent').value;
+    
     if (!studentId) {
       showPopup('Error', 'Please select a student.', 'error');
       return;
     }
     
-    showLoading(true, "Generating summary...");
+    showLoading(true, "Generating monthly report...");
     
     google.script.run
       .withSuccessHandler(summaryData => {
         showLoading(false);
         
         if (!summaryData) {
-          showPopup('Error', 'No summary data found.', 'error');
+          showPopup('Info', 'No attendance data found.', 'info');
+          return;
+        }
+        
+        // Server warnings (not enrolled in the month / month outside the term):
+        // show the reason instead of downloading an empty report.
+        if (summaryData.warning) {
+          showPopup('Info', summaryData.warning, 'info');
           return;
         }
         
         const formattedData = [{
           'Student Name': summaryData.studentName,
           'Student ID': summaryData.studentId,
-          'Class Section': classSection,
+          'Class': summaryData.className,
+          'Section': summaryData.section,
           'Month': monthName,
-          'Year': summaryData.year,
-          'Presents': summaryData.presents,
-          'Absents': summaryData.absents,
-          'Leaves': summaryData.leaves,
+          'Year': year,
+          'Present': summaryData.presents,
+          'Absent': summaryData.absents,
+          'Leave': summaryData.leaves,
           'Total Days': summaryData.totalDays,
-          'Attendance %': `${summaryData.presentPercentage}%`
+          'Attendance %': Math.round(summaryData.presentPercentage * 100) / 100,
+          'Present Hours': summaryData.hours,
+          'Working Days': summaryData.workingDays,
+          'Status': summaryData.status
         }];
         
-        const filename = `${summaryData.studentName.replace(/\s+/g, '_')}_${classSection.replace(/\s+/g, '_')}_${monthName}_${year}`;
-        
         if (format === 'csv') {
-          downloadCSV(formattedData, `student_summary_${filename}.csv`);
+          downloadCSV(formattedData, `monthly_report_${studentId}_${year}-${month}.csv`);
         } else {
-          // For PNG, add color-coding with progress bars
-          const coloredData = formattedData.map(item => {
-            const percentage = parseFloat(item['Attendance %']);
-            let color = '#c62828'; // red for <50%
-            let bgColor = '#ffebee';
-            
-            if (percentage >= 75) {
-              color = '#2e7d32'; // dark green for >=75%
-              bgColor = '#e8f5e9';
-            } else if (percentage >= 50) {
-              color = '#ef6c00'; // orange for 50-74%
-              bgColor = '#fff3e0';
-            }
-            
-            // Add progress bar for attendance percentage
-            item['Attendance %'] = `
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="min-width: 45px; color: ${color}; font-weight: bold;">${item['Attendance %']}</span>
-                <div style="flex: 1; background: #e0e0e0; height: 10px; border-radius: 4px; overflow: hidden;">
-                  <div style="width: ${Math.min(100, Math.max(0, percentage))}%; background: ${color}; height: 100%; border-radius: 4px;"></div>
-                </div>
-              </div>
-            `;
-            return item;
-          });
-          
-          generateMonthlyPNGReport(coloredData, `student_summary_${filename}`, 'Student Monthly Summary');
+          generateMonthlyPNGReport(monthlyPngRows_(formattedData), `monthly_report_${studentId}_${year}-${month}`, 'Student Monthly Summary', `${summaryData.studentName} · ${summaryData.className}-${summaryData.section} · ${monthName} ${year}`);
         }
-        
-        addToDownloadHistory(`Student Summary - ${summaryData.studentName} - ${monthName} ${year}`, format.toUpperCase());
       })
       .withFailureHandler(error => {
         showLoading(false);
-        showPopup('Error', `Failed to generate summary: ${error.message}`, 'error');
+        showPopup('Error', `Failed to generate report: ${error.message}`, 'error');
       })
-      .generateStudentMonthlySummary(studentId, month, year);
-      
+      .generateStudentMonthlySummary(studentId, month, year, termId, (currentUser && currentUser.recId) || '', (currentUser && currentUser.username) || '');
   } else {
-    showLoading(true, "Generating class summary...");
+    // All students in class
+    showLoading(true, "Generating class monthly report...");
     
     google.script.run
       .withSuccessHandler(students => {
         if (!students || students.length === 0) {
           showLoading(false);
-          showPopup('Info', 'No students found.', 'info');
+          showPopup('Info', 'No students found in the selected class.', 'info');
           return;
         }
         
-        const promises = students.map(student => {
+        // Roster for the month (portal rule): only students enrolled at some
+        // point in the month — a mid-month joiner counts from joining, a
+        // leaver only until leaving, a student who never joined does not appear.
+        const monthStartYMD = `${year}-${String(month).padStart(2, '0')}-01`;
+        const monthEndDay = new Date(year, month, 0).getDate();
+        const monthEndYMD = `${year}-${String(month).padStart(2, '0')}-${String(monthEndDay).padStart(2, '0')}`;
+        const roster = students.filter(function (s) {
+          return isEnrolledInMonthYMD_(monthStartYMD, monthEndYMD, s.dateOfJoining, s.inactiveDate);
+        });
+        if (roster.length === 0) {
+          showLoading(false);
+          showPopup('Info', 'No students enrolled in ' + classSection + ' during ' + monthName + ' ' + year + '.', 'info');
+          return;
+        }
+        
+        const promises = roster.map(student => {
           return new Promise((resolve) => {
             google.script.run
-              .withSuccessHandler(summary => resolve(summary))
-              .withFailureHandler(() => resolve(null))
-              .generateStudentMonthlySummary(student.studentId, month, year);
+              .withSuccessHandler(summary => resolve({ ok: true, summary: summary, student: student }))
+              .withFailureHandler(() => resolve({ ok: false, student: student }))
+              .generateStudentMonthlySummary(student.studentId, month, year, termId, (currentUser && currentUser.recId) || '', (currentUser && currentUser.username) || '');
           });
         });
         
         Promise.all(promises).then(results => {
           showLoading(false);
+          const failed = results.filter(r => !r.ok);
+          const validResults = results.filter(r => r.ok && r.summary).map(r => r.summary);
           
-          const validResults = results.filter(r => r !== null);
+          if (failed.length > 0) {
+            showPopup('Warning', 'Monthly summary could not be generated for: ' + failed.map(r => r.student.studentName).join(', ') + '. They were left out of the report.', 'info');
+          }
           
           if (validResults.length === 0) {
             showPopup('Info', 'No attendance data found.', 'info');
             return;
           }
           
-          const formattedData = validResults.map(summary => ({
-            'Student Name': summary.studentName,
-            'Student ID': summary.studentId,
-            'Class Section': classSection,
-            'Month': monthName,
-            'Year': summary.year,
-            'Presents': summary.presents,
-            'Absents': summary.absents,
-            'Leaves': summary.leaves,
-            'Total Days': summary.totalDays,
-            'Attendance %': `${summary.presentPercentage}%`
-          }));
+          // If every summary carries the same warning (month outside the term),
+          // show the reason instead of an all-zero report.
+          if (validResults.every(s => s.warning)) {
+            showPopup('Info', validResults[0].warning, 'info');
+            return;
+          }
           
           const totalPresents = validResults.reduce((sum, s) => sum + s.presents, 0);
           const totalAbsents = validResults.reduce((sum, s) => sum + s.absents, 0);
           const totalLeaves = validResults.reduce((sum, s) => sum + s.leaves, 0);
           const totalDays = validResults.reduce((sum, s) => sum + s.totalDays, 0);
+          const totalHours = validResults.reduce((sum, s) => sum + (s.hours || 0), 0);
+          const totalPercentage = totalDays > 0 ? (totalPresents / totalDays) * 100 : 0;
+          // Working Days is the same for the whole class: take the first student's value.
+          const classWorkingDays = validResults.length > 0 ? (validResults[0].workingDays || 0) : 0;
           
-          // Add visual separator for PNG only
-          if (format !== 'csv') {
-            formattedData.push({
-              'Student Name': '═══════════════',
-              'Student ID': '',
-              'Class Section': '',
-              'Month': '',
-              'Year': '',
-              'Presents': '─────────',
-              'Absents': '─────────',
-              'Leaves': '─────────',
-              'Total Days': '─────────',
-              'Attendance %': '─────────'
-            });
-          }
+          const formattedData = validResults.map(summary => ({
+            'Student Name': summary.studentName,
+            'Student ID': summary.studentId,
+            'Class': summary.className,
+            'Section': summary.section,
+            'Month': monthName,
+            'Year': year,
+            'Present': summary.presents,
+            'Absent': summary.absents,
+            'Leave': summary.leaves,
+            'Total Days': summary.totalDays,
+            'Attendance %': Math.round(summary.presentPercentage * 100) / 100,
+            'Present Hours': summary.hours,
+            'Working Days': summary.workingDays,
+            'Status': summary.status
+          }));
           
+          // Add class total row
           formattedData.push({
             'Student Name': 'CLASS TOTAL',
             'Student ID': '',
-            'Class Section': classSection,
+            'Class': classSection.split('-')[0],
+            'Section': classSection.split('-')[1],
             'Month': monthName,
             'Year': year,
-            'Presents': totalPresents,
-            'Absents': totalAbsents,
-            'Leaves': totalLeaves,
+            'Present': totalPresents,
+            'Absent': totalAbsents,
+            'Leave': totalLeaves,
             'Total Days': totalDays,
-            'Attendance %': totalDays > 0 ? `${Math.round((totalPresents / totalDays) * 100 * 100) / 100}%` : '0%'
+            'Attendance %': Math.round(totalPercentage * 100) / 100,
+            'Present Hours': Math.round(totalHours * 100) / 100,
+            'Working Days': classWorkingDays,
+            'Status': ''
           });
           
-          const filename = `class_summary_${classSection.replace(/\s+/g, '_')}_${monthName}_${year}`;
-          
           if (format === 'csv') {
-            const cleanData = formattedData.map(row => {
-              const cleanRow = {};
-              Object.keys(row).forEach(key => {
-                let value = row[key];
-                if (typeof value === 'string') {
-                  value = value.replace(/[═─▬▭▮▯▰▱◯○●◐◑◒◓◔◕◖◗►◄▲▼]/g, '');
-                }
-                cleanRow[key] = value;
-              });
-              return cleanRow;
-            });
-            downloadCSV(cleanData, `class_summary_${filename}.csv`);
+            downloadCSV(formattedData, `monthly_report_${classSection}_${year}-${month}.csv`);
           } else {
-            // Color-code the attendance percentages with progress bars
-            const coloredData = formattedData.map(item => {
-              if (item['Attendance %'] && item['Attendance %'] !== '─────────' && item['Attendance %'] !== '0%') {
-                const percentage = parseFloat(item['Attendance %']);
-                let color = '#c62828';
-                let bgColor = '#ffebee';
-                
-                if (percentage >= 75) {
-                  color = '#2e7d32';
-                  bgColor = '#e8f5e9';
-                } else if (percentage >= 50) {
-                  color = '#ef6c00';
-                  bgColor = '#fff3e0';
-                }
-                
-                if (item['Student Name'] === 'CLASS TOTAL') {
-                  item['Attendance %'] = `
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                      <span style="min-width: 45px; color: ${color}; font-weight: bold; font-size: 16px;">${item['Attendance %']}</span>
-                      <div style="flex: 1; background: #e0e0e0; height: 10px; border-radius: 4px; overflow: hidden;">
-                        <div style="width: ${Math.min(100, Math.max(0, percentage))}%; background: ${color}; height: 100%; border-radius: 4px;"></div>
-                      </div>
-                    </div>
-                  `;
-                } else {
-                  item['Attendance %'] = `
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                      <span style="min-width: 45px; color: ${color}; font-weight: 600;">${item['Attendance %']}</span>
-                      <div style="flex: 1; background: #e0e0e0; height: 8px; border-radius: 4px; overflow: hidden;">
-                        <div style="width: ${Math.min(100, Math.max(0, percentage))}%; background: ${color}; height: 100%; border-radius: 4px;"></div>
-                      </div>
-                    </div>
-                  `;
-                }
-              }
-              return item;
-            });
-            
-            generateMonthlyPNGReport(coloredData, `class_summary_${filename}`, 'Class Monthly Summary');
+            generateMonthlyPNGReport(monthlyPngRows_(formattedData), `monthly_report_${classSection}_${year}-${month}`, 'Class Monthly Summary', `Class ${classSection.split('-')[0]} · Section ${classSection.split('-')[1]} · ${monthName} ${year}`);
           }
-          
-          addToDownloadHistory(`Class Summary - ${classSection} - ${monthName} ${year}`, format.toUpperCase());
         });
       })
       .withFailureHandler(error => {
@@ -6209,351 +6290,642 @@ function generateMonthlyReport() {
   }
 }
 
-async function generatePNGReport(data, filename, title) {
-  showLoading(true, "Generating PNG report...");
+function populateDayWiseReportClassSections() {
+  const select = document.getElementById('reportDayWiseClassSection');
+  select.innerHTML = '<option value="" disabled selected>Select Class Section</option>';
   
-  const reportDiv = document.createElement('div');
-reportDiv.setAttribute('data-theme', 'light'); // ← ADD THIS LINE
-  reportDiv.style.cssText = `
-    position: absolute; top: -9999px; left: -9999px;
-    width: 1100px; background: white; padding: 40px;
-    font-family: 'Poppins', sans-serif;
-    color: #1a2c3e !important;
-  `;
+  let sectionsToShow = userPermissions.canDownloadAllReports ? getAllClassSections() : assignedClassSections;
   
-  // Extract date from filename or use current date
-  let reportDate = '';
-  const dateMatch = filename.match(/(\d{4}-\d{2}-\d{2})/);
-  if (dateMatch) {
-    const dateParts = dateMatch[1].split('-');
-    reportDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]).toLocaleDateString('en-US', {
-      year: 'numeric', month: 'long', day: 'numeric'
-    });
-  }
-  
-  const currentDate = new Date().toLocaleDateString('en-US', { 
-    year: 'numeric', month: 'long', day: 'numeric' 
+  sectionsToShow.forEach(cs => {
+    select.appendChild(new Option(cs, cs));
   });
-  
-  // Professional color scheme for status
-  function getStatusStyle(status) {
-    switch(status?.toLowerCase()) {
-      case 'present': 
-        return 'color: #2e7d32; font-weight: 600; background-color: #e8f5e9;';
-      case 'absent': 
-        return 'color: #c62828; font-weight: 600; background-color: #ffebee;';
-      case 'leave': 
-        return 'color: #ef6c00; font-weight: 600; background-color: #fff3e0;';
-      default: 
-        return 'color: #1a2c3e; font-weight: 500; background-color: #f5f5f5;';
-    }
-  }
-  
-  let tableHtml = `
-    <div style="margin-bottom: 30px; color: #1a2c3e;">
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
-        <div style="text-align: left;">
-          <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Attendance Date:</div>
-          <div style="font-size: 16px; font-weight: 600; color: #1a73e8;">${reportDate || 'Not Specified'}</div>
-        </div>
-        <div style="text-align: right;">
-          <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Report Generated:</div>
-          <div style="font-size: 14px; color: #666;">${currentDate}</div>
-        </div>
-      </div>
-      <h1 style="color: #1a2c3e; margin-bottom: 10px; text-align: center;">${title}</h1>
-      <hr style="border: 2px solid #1a73e8;">
-    </div>
-    <!-- LEGEND BOX -->
-    <div style="margin-bottom: 20px; padding: 10px; background: #f8f9fa; border-radius: 8px; color: #1a2c3e;">
-      <div style="display: inline-block; margin-right: 25px;">
-        <span style="display: inline-block; width: 12px; height: 12px; background: #2e7d32; border-radius: 2px; margin-right: 6px;"></span>
-        <span style="font-size: 12px; color: #1a2c3e;">Present</span>
-      </div>
-      <div style="display: inline-block; margin-right: 25px;">
-        <span style="display: inline-block; width: 12px; height: 12px; background: #c62828; border-radius: 2px; margin-right: 6px;"></span>
-        <span style="font-size: 12px; color: #1a2c3e;">Absent</span>
-      </div>
-      <div style="display: inline-block; margin-right: 25px;">
-        <span style="display: inline-block; width: 12px; height: 12px; background: #ef6c00; border-radius: 2px; margin-right: 6px;"></span>
-        <span style="font-size: 12px; color: #1a2c3e;">Leave</span>
-      </div>
-      <div style="display: inline-block;">
-        <span style="display: inline-block; width: 12px; height: 12px; background: #e0e0e0; border-radius: 2px; margin-right: 6px; border: 1px solid #ccc;"></span>
-        <span style="font-size: 12px; color: #1a2c3e;">Not Marked</span>
-      </div>
-    </div>
-    <table style="width: 100%; border-collapse: collapse; color: #1a2c3e;">
-      <thead>
-        <tr style="background: #1a73e8; color: white;">
-          ${Object.keys(data[0]).map(key => `<th style="padding: 12px; text-align: left; border: 1px solid #ddd; color: white;">${key}</th>`).join('')}
-        </tr>
-      </thead>
-      <tbody>
-  `;
-  
-  data.forEach((row, index) => {
-    const bgColor = index % 2 === 0 ? '#ffffff' : '#f8f9fa';
-    tableHtml += `<tr style="background: ${bgColor};">`;
-    Object.keys(row).forEach(key => {
-      let value = row[key] || '';
-      let style = 'padding: 10px; border: 1px solid #ddd; color: #1a2c3e;';
-      
-      // Apply color styling to the Status column
-      if (key === 'Status' || key === 'Present/Absent') {
-        style += getStatusStyle(value);
-      }
-      
-      tableHtml += `<td style="${style}">${value}</td>`;
-    });
-    tableHtml += `</tr>`;
-  });
-  
-  tableHtml += `
-      </tbody>
-    </table>
-    <div style="margin-top: 30px; text-align: center; font-size: 12px; color: #999;">
-      Generated by Student Attendance System
-    </div>
-  `;
-  
-  reportDiv.innerHTML = tableHtml;
-  document.body.appendChild(reportDiv);
-  
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
- try {
-    const canvas = await html2canvas(reportDiv, {
-      scale: 3,
-      backgroundColor: '#ffffff',
-      useCORS: true,
-      logging: false,
-      onclone: function(clonedDoc) {
-        // FORCE LIGHT THEME - THIS FIXES EVERYTHING
-        clonedDoc.documentElement.setAttribute('data-theme', 'light');
-        
-        // Force all text in the cloned document to be dark
-        const allElements = clonedDoc.querySelectorAll('*');
-        allElements.forEach(el => {
-          if (el.style) {
-            // Only set color if not already explicitly set
-            if (!el.style.color || el.style.color === '') {
-              el.style.color = '#1a2c3e';
-            }
-          }
-        });
-      }
-    });
-    
-    document.body.removeChild(reportDiv);
-    
-    const link = document.createElement('a');
-    link.download = `${filename}.png`;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-    
-    showLoading(false);
-    showPopup('Success', `PNG report downloaded!`, 'success');
-  } catch (error) {
-    document.body.removeChild(reportDiv);
-    showLoading(false);
-    showPopup('Error', `Failed to generate PNG: ${error.message}`, 'error');
+}
+
+// Month options for the Day Wise report: the last 12 months (portal
+// MonthlyBarReport rule). Not filtered by term — the server validates the
+// month against the term when generating (same as the v3 Monthly report).
+function populateDayWiseMonths() {
+  const monthSelect = document.getElementById('reportDayWiseMonth');
+  if (!monthSelect) return;
+  monthSelect.innerHTML = '<option value="" disabled selected>Select Month</option>';
+  const today = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const val = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    const label = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+    monthSelect.appendChild(new Option(label, val));
   }
 }
 
-async function generateMonthlyPNGReport(data, filename, title) {
+function generateDayWiseReport() {
+  const classSection = document.getElementById('reportDayWiseClassSection').value;
+  const termId = document.getElementById('reportDayWiseTerm') ? document.getElementById('reportDayWiseTerm').value : '';
+  const formatEl = document.querySelector('input[name="dayWiseFormat"]:checked');
+  const format = formatEl ? formatEl.value : 'csv';
+  const monthValue = document.getElementById('reportDayWiseMonth').value;
+  
+  if (!classSection) {
+    showPopup('Error', 'Please select a class section.', 'error');
+    return;
+  }
+  
+  if (!monthValue) {
+    showPopup('Error', 'Please select a month.', 'error');
+    return;
+  }
+  
+  const parts = monthValue.split('-');
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
+  
+  showLoading(true, "Generating day wise report...");
+  
+  google.script.run
+    .withSuccessHandler(function (result) {
+      showLoading(false);
+      if (!result) {
+        showPopup('Info', 'No attendance data found.', 'info');
+        return;
+      }
+      // Server warning (month outside the term): show the reason instead of
+      // downloading an empty report (same as the v3 Monthly report).
+      if (result.warning) {
+        showPopup('Info', result.warning, 'info');
+        return;
+      }
+      if (!result.rows || result.rows.length === 0) {
+        showPopup('Info', 'No students enrolled in ' + classSection + ' during ' + monthName + ' ' + year + '.', 'info');
+        return;
+      }
+      const filename = 'monthly_day_wise_report_' + classSection + '_' + year + '-' + String(month).padStart(2, '0');
+      if (format === 'csv') {
+        downloadDayWiseCSV(result, filename + '.csv');
+      } else {
+        generateDayWisePNGReport(result, filename);
+      }
+    })
+    .withFailureHandler(function (error) {
+      showLoading(false);
+      showPopup('Error', 'Failed to generate report: ' + error.message, 'error');
+    })
+    .generateStudentDayWiseReport(month, year, classSection, termId, (currentUser && currentUser.recId) || '', (currentUser && currentUser.username) || '');
+}
+
+// Day Wise CSV (portal MonthlyBarReport column order): Std ID, Name, Class,
+// Section, Day 1..N, Present, Absent, Leave, Total Days, Total %, Total Hours,
+// Status — plus a CLASS TOTAL row. Totals are passed as strings because the
+// shared downloadCSV() turns a numeric 0 into a blank cell.
+function downloadDayWiseCSV(result, filename) {
+  const daysInMonth = result.daysInMonth;
+  const rows = result.rows.map(function (r) {
+    const o = { 'Std ID': r.studentId, 'Name': r.studentName, 'Class': r.className, 'Section': r.section };
+    for (let d = 1; d <= daysInMonth; d++) o['Day ' + d] = r.days[d] || '-';
+    o['Present'] = String(r.presents);
+    o['Absent'] = String(r.absents);
+    o['Leave'] = String(r.leaves);
+    o['Total Days'] = String(r.totalDays);
+    o['Total %'] = r.percentage + '%';
+    o['Total Hours'] = String(r.hours);
+    o['Status'] = r.status;
+    return o;
+  });
+  const t = result.totals;
+  const totalRow = { 'Std ID': '', 'Name': 'CLASS TOTAL', 'Class': result.className, 'Section': result.section };
+  for (let d = 1; d <= daysInMonth; d++) totalRow['Day ' + d] = '';
+  totalRow['Present'] = String(t.presents);
+  totalRow['Absent'] = String(t.absents);
+  totalRow['Leave'] = String(t.leaves);
+  totalRow['Total Days'] = String(t.totalDays);
+  totalRow['Total %'] = t.percentage + '%';
+  totalRow['Total Hours'] = String(t.hours);
+  totalRow['Status'] = '';
+  rows.push(totalRow);
+  downloadCSV(rows, filename);
+}
+
+// Monthly Day Wise PNG (v4): dedicated wide-grid renderer mirroring the MIS
+// portal's MonthlyBarReport PNG (day cells P/A/L/·, legend, caveat footer),
+// plus the Day Wise additions: '×' non-working day, '—' not enrolled / outside
+// term, and a CLASS TOTAL row. (A generic table renderer cannot render
+// a 31-day grid — it would squeeze ~40 columns into a narrow table.)
+async function generateDayWisePNGReport(result, filename) {
   showLoading(true, "Generating PNG report...");
-  
-const reportDiv = document.createElement('div');
-reportDiv.setAttribute('data-theme', 'light'); // ← ADD THIS LINE
-  reportDiv.style.cssText = `
-    position: absolute; top: -9999px; left: -9999px;
-    width: 1200px; background: white; padding: 40px;
-    font-family: 'Poppins', sans-serif;
-    color: #1a2c3e !important;
-  `;
-  
+  const daysInMonth = result.daysInMonth;
   const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-  
-  let reportMonthYear = '';
-  for (const row of data) {
-    if (row['Month'] && row['Month'] !== '─────────') {
-      reportMonthYear = `${row['Month']} ${row['Year']}`;
-      break;
-    }
+  const reportDiv = document.createElement('div');
+  reportDiv.setAttribute('data-theme', 'light');
+  const width = 720 + daysInMonth * 28;
+  reportDiv.style.cssText = 'position:absolute;top:-9999px;left:-9999px;width:' + width + 'px;background:white;padding:30px;font-family:sans-serif;color:#1a2c3e;';
+  const esc = function (v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  const dayCell = function (sym) {
+    const head = String(sym || '').charAt(0);
+    let bg = 'transparent', color = '#cbd5e1', weight = 500;
+    if (head === 'P') { bg = '#ecfdf5'; color = '#047857'; weight = 700; }
+    else if (head === 'A') { bg = '#fef2f2'; color = '#b91c1c'; weight = 700; }
+    else if (head === 'L') { bg = '#fff7ed'; color = '#c2410c'; weight = 700; }
+    else if (head === '·') { bg = '#f1f5f9'; color = '#64748b'; weight = 600; }
+    else if (sym === '×') { bg = '#f8fafc'; color = '#94a3b8'; weight = 500; }
+    return '<td style="padding:8px 2px;text-align:center;border-bottom:1px solid #f1f5f9;background:' + bg + ';color:' + color + ';font-weight:' + weight + ';font-size:10px;">' + sym + '</td>';
+  };
+
+  let html = ''
+    + '<div style="margin-bottom:24px;text-align:center;">'
+    + '<div style="display:inline-block;padding:6px 14px;background:#eff6ff;color:#1e40af;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;border-radius:999px;margin-bottom:10px;">Monthly Day Wise Report</div>'
+    + '<div style="font-size:22px;font-weight:700;color:#111827;margin-bottom:4px;">Class ' + esc(result.className) + ' - ' + esc(result.section) + '</div>'
+    + '<div style="font-size:12px;color:#6b7280;">Month: ' + esc(result.monthName) + ' ' + result.year + ' &nbsp;·&nbsp; Generated on ' + currentDate + (result.termName ? ' &nbsp;·&nbsp; Term: ' + esc(result.termName) : '') + '</div>'
+    + '</div>';
+
+  html += '<table style="width:100%;border-collapse:separate;border-spacing:0;font-size:11px;color:#1f2937;"><thead><tr style="background:#f8fafc;color:#374151;">'
+    + '<th style="padding:10px 12px;text-align:left;font-weight:600;font-size:11px;letter-spacing:0.02em;border-bottom:2px solid #e5e7eb;">Std ID</th>'
+    + '<th style="padding:10px 12px;text-align:left;font-weight:600;font-size:11px;letter-spacing:0.02em;border-bottom:2px solid #e5e7eb;">Name</th>'
+    + '<th style="padding:10px 12px;text-align:left;font-weight:600;font-size:11px;letter-spacing:0.02em;border-bottom:2px solid #e5e7eb;">Class</th>'
+    + '<th style="padding:10px 12px;text-align:left;font-weight:600;font-size:11px;letter-spacing:0.02em;border-bottom:2px solid #e5e7eb;">Sec</th>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    html += '<th style="padding:10px 4px;text-align:center;font-weight:600;font-size:10px;color:#6b7280;border-bottom:2px solid #e5e7eb;">' + d + '</th>';
   }
-  
-  // Helper function to get color based on percentage
-  function getPercentageColor(percentage) {
-    if (percentage >= 75) return '#2e7d32'; // Dark Green
-    if (percentage >= 50) return '#ef6c00'; // Orange
-    return '#c62828'; // Red
+  html += '<th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;color:#047857;border-bottom:2px solid #e5e7eb;">Present</th>'
+    + '<th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;color:#b91c1c;border-bottom:2px solid #e5e7eb;">Absent</th>'
+    + '<th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;color:#c2410c;border-bottom:2px solid #e5e7eb;">Leave</th>'
+    + '<th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;color:#1e40af;border-bottom:2px solid #e5e7eb;">Days</th>'
+    + '<th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;color:#1e40af;border-bottom:2px solid #e5e7eb;">%</th>'
+    + '<th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;color:#7e22ce;border-bottom:2px solid #e5e7eb;">Hours</th>'
+    + '<th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;border-bottom:2px solid #e5e7eb;">Status</th>'
+    + '</tr></thead><tbody>';
+
+  result.rows.forEach(function (row, idx) {
+    const isActive = row.status === 'Active';
+    const rowBg = idx % 2 === 0 ? '#ffffff' : '#fafbfc';
+    const rowOpacity = isActive ? '1' : '0.55';
+    html += '<tr style="background:' + rowBg + ';opacity:' + rowOpacity + ';">';
+    html += '<td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#334155;">' + esc(row.studentId) + '</td>';
+    html += '<td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-weight:500;color:#0f172a;">' + esc(row.studentName) + '</td>';
+    html += '<td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;color:#475569;">' + esc(row.className) + '</td>';
+    html += '<td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;color:#475569;">' + esc(row.section) + '</td>';
+    for (let d = 1; d <= daysInMonth; d++) html += dayCell(row.days[d] || '-');
+    html += '<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;background:#ecfdf5;color:#047857;font-weight:700;font-size:11px;">' + row.presents + '</td>';
+    html += '<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;background:#fef2f2;color:#b91c1c;font-weight:700;font-size:11px;">' + row.absents + '</td>';
+    html += '<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;background:#fff7ed;color:#c2410c;font-weight:700;font-size:11px;">' + row.leaves + '</td>';
+    html += '<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;background:#eff6ff;color:#1e40af;font-weight:700;font-size:11px;">' + row.totalDays + '</td>';
+    const pctColor = row.percentage >= 75 ? '#047857' : row.percentage >= 50 ? '#c2410c' : '#b91c1c';
+    const pctBg = row.percentage >= 75 ? '#ecfdf5' : row.percentage >= 50 ? '#fff7ed' : '#fef2f2';
+    html += '<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;background:' + pctBg + ';color:' + pctColor + ';font-weight:700;font-size:11px;">' + row.percentage + '%</td>';
+    html += '<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;background:#faf5ff;color:#7e22ce;font-weight:700;font-size:11px;">' + row.hours + '</td>';
+    const statusColor = isActive ? '#047857' : '#64748b';
+    const statusBg = isActive ? '#ecfdf5' : '#f1f5f9';
+    html += '<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;"><span style="display:inline-block;padding:3px 10px;border-radius:999px;background:' + statusBg + ';color:' + statusColor + ';font-size:10px;font-weight:600;letter-spacing:0.02em;">' + esc(row.status) + '</span></td>';
+    html += '</tr>';
+  });
+
+  // CLASS TOTAL row
+  const t = result.totals;
+  const tPctColor = t.percentage >= 75 ? '#047857' : t.percentage >= 50 ? '#c2410c' : '#b91c1c';
+  const tPctBg = t.percentage >= 75 ? '#ecfdf5' : t.percentage >= 50 ? '#fff7ed' : '#fef2f2';
+  html += '<tr style="background:#f8fafc;font-weight:700;">'
+    + '<td style="padding:8px 12px;border-top:2px solid #e5e7eb;"></td>'
+    + '<td style="padding:8px 12px;border-top:2px solid #e5e7eb;color:#0f172a;">CLASS TOTAL</td>'
+    + '<td style="padding:8px 12px;border-top:2px solid #e5e7eb;color:#475569;">' + esc(result.className) + '</td>'
+    + '<td style="padding:8px 12px;border-top:2px solid #e5e7eb;color:#475569;">' + esc(result.section) + '</td>';
+  for (let d = 1; d <= daysInMonth; d++) html += '<td style="padding:8px 2px;border-top:2px solid #e5e7eb;"></td>';
+  html += '<td style="padding:8px 8px;text-align:center;border-top:2px solid #e5e7eb;background:#ecfdf5;color:#047857;">' + t.presents + '</td>'
+    + '<td style="padding:8px 8px;text-align:center;border-top:2px solid #e5e7eb;background:#fef2f2;color:#b91c1c;">' + t.absents + '</td>'
+    + '<td style="padding:8px 8px;text-align:center;border-top:2px solid #e5e7eb;background:#fff7ed;color:#c2410c;">' + t.leaves + '</td>'
+    + '<td style="padding:8px 8px;text-align:center;border-top:2px solid #e5e7eb;background:#eff6ff;color:#1e40af;">' + t.totalDays + '</td>'
+    + '<td style="padding:8px 8px;text-align:center;border-top:2px solid #e5e7eb;background:' + tPctBg + ';color:' + tPctColor + ';">' + t.percentage + '%</td>'
+    + '<td style="padding:8px 8px;text-align:center;border-top:2px solid #e5e7eb;background:#faf5ff;color:#7e22ce;">' + t.hours + '</td>'
+    + '<td style="padding:8px 8px;border-top:2px solid #e5e7eb;"></td></tr>';
+  html += '</tbody></table>';
+
+  html += '<div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:16px;padding:10px 14px;background:#f8fafc;border-radius:8px;font-size:11px;color:#64748b;">'
+    + '<span><strong style="color:#047857;">P</strong> = Present</span>'
+    + '<span><strong style="color:#b91c1c;">A</strong> = Absent</span>'
+    + '<span><strong style="color:#c2410c;">L</strong> = Leave</span>'
+    + '<span><strong style="color:#64748b;">·</strong> = Other (not counted)</span>'
+    + '<span><strong style="color:#cbd5e1;">-</strong> = No record</span>'
+    + '<span><strong style="color:#94a3b8;">×</strong> = Not a working day</span>'
+    + '<span><strong style="color:#cbd5e1;">—</strong> = Not enrolled / outside term</span>'
+    + '<span><strong style="color:#047857;">P2</strong> = 2 presents in a day</span>'
+    + '</div>';
+
+  html += '<div style="margin-top:20px;padding-top:14px;border-top:1px solid #e5e7eb;font-size:10.5px;color:#94a3b8;line-height:1.7;text-align:center;">'
+    + '<div>This is a system generated report.</div>'
+    + '<div>REC reserves the right to rectify the attendance records.</div>'
+    + '<div>Any leading number against Present (P) leads to additional attendance in a day.</div>'
+    + '</div>';
+
+  reportDiv.innerHTML = html;
+  document.body.appendChild(reportDiv);
+  await new Promise(function (r) { setTimeout(r, 100); });
+  try {
+    const canvas = await html2canvas(reportDiv, {
+      scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false,
+      onclone: function (clonedDoc) {
+        clonedDoc.documentElement.setAttribute('data-theme', 'light');
+        const allElements = clonedDoc.querySelectorAll('*');
+        allElements.forEach(function (el) {
+          if (el.style && (!el.style.color || el.style.color === '')) el.style.color = '#1a2c3e';
+        });
+      }
+    });
+    document.body.removeChild(reportDiv);
+    const link = document.createElement('a');
+    link.download = filename + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    showLoading(false);
+    showPopup('Success', 'Monthly day wise PNG report downloaded!', 'success');
+  } catch (error) {
+    document.body.removeChild(reportDiv);
+    showLoading(false);
+    showPopup('Error', 'Failed to generate PNG: ' + error.message, 'error');
   }
-  
-  function getPercentageBg(percentage) {
-    if (percentage >= 75) return '#e8f5e9'; // Light Green
-    if (percentage >= 50) return '#fff3e0'; // Light Orange
-    return '#ffebee'; // Light Red
+}
+
+// Daily Attendance PNG (v5.4): dedicated renderer modelled on the MIS
+// portal's renderAsPNG — title pill + subtitle, compact 11px table,
+// Status pills, Hours/Working Hours tinted. It replaces the generic
+// renderer, whose only caller was the Daily report.
+async function generateDailyPNGReport(data, filename, title, subtitle) {
+  if (!data || data.length === 0) {
+    showLoading(false);
+    showPopup('Error', 'No rows to render.', 'error');
+    return;
   }
-  
-  let tableHtml = `
-    <div style="margin-bottom: 30px; color: #1a2c3e;">
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
-        <div style="text-align: left;">
-          <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Reporting Period:</div>
-          <div style="font-size: 16px; font-weight: 600; color: #1a73e8;">${reportMonthYear || 'Not Specified'}</div>
-        </div>
-        <div style="text-align: right;">
-          <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Report Generated:</div>
-          <div style="font-size: 14px; color: #666;">${currentDate}</div>
-        </div>
+  showLoading(true, "Generating PNG report...");
+
+  const reportDiv = document.createElement('div');
+  reportDiv.setAttribute('data-theme', 'light');
+  reportDiv.style.cssText = 'position:absolute;top:-9999px;left:-9999px;background:white;padding:30px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1f2937;';
+
+  const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const headers = Object.keys(data[0]);
+
+  // Per-header colour (portal renderAsPNG).
+  const headerColor = (h) => {
+    const k = String(h).toLowerCase();
+    if (k === 'status') return '';
+    if (k === 'presents' || k === 'present') return '#047857';
+    if (k === 'absents' || k === 'absent') return '#b91c1c';
+    if (k === 'leaves' || k === 'leave') return '#c2410c';
+    if (k === 'total days' || k === 'days') return '#1e40af';
+    if (k === 'present hours' || k === 'total hours' || k === 'hours') return '#7e22ce';
+    if (k === 'working hours') return '#1e40af';
+    if (k === 'attendance %' || k === '%') return '#1e40af';
+    return '#374151';
+  };
+
+  let html = `
+    <div style="margin-bottom:24px;text-align:center;">
+      <div style="display:inline-block;padding:6px 14px;background:#eff6ff;color:#1e40af;
+                  font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;
+                  border-radius:999px;margin-bottom:10px;">
+        ${title}
       </div>
-      <h1 style="color: #1a2c3e; margin-bottom: 10px; text-align: center; font-size: 24px;">${title}</h1>
-      <hr style="border: 2px solid #1a73e8;">
-    </div>
-    
-    <!-- LEGEND BOX - NOW WITH CLEAR VISIBLE COLORS -->
-    <div style="margin-bottom: 20px; padding: 12px 15px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0; color: #1a2c3e;">
-      <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #1a2c3e;">📊 Attendance Percentage Legend:</div>
-      <div style="display: flex; gap: 25px; flex-wrap: wrap;">
-        <div style="display: inline-flex; align-items: center; gap: 8px;">
-          <span style="display: inline-block; width: 16px; height: 16px; background: #2e7d32; border-radius: 3px;"></span>
-          <span style="font-size: 13px; color: #1a2c3e; font-weight: 500;">≥75% (Excellent)</span>
-        </div>
-        <div style="display: inline-flex; align-items: center; gap: 8px;">
-          <span style="display: inline-block; width: 16px; height: 16px; background: #ef6c00; border-radius: 3px;"></span>
-          <span style="font-size: 13px; color: #1a2c3e; font-weight: 500;">50% - 74% (Satisfactory)</span>
-        </div>
-        <div style="display: inline-flex; align-items: center; gap: 8px;">
-          <span style="display: inline-block; width: 16px; height: 16px; background: #c62828; border-radius: 3px;"></span>
-          <span style="font-size: 13px; color: #1a2c3e; font-weight: 500;">{'<'}50% (Needs Improvement)</span>
-        </div>
+      <div style="font-size:22px;font-weight:700;color:#111827;margin-bottom:4px;">
+        ${title}
+      </div>
+      <div style="font-size:12px;color:#6b7280;">
+        ${subtitle || ''} &nbsp;·&nbsp; Generated on ${currentDate}
       </div>
     </div>
-    
-    <table style="width: 100%; border-collapse: collapse; color: #1a2c3e; font-size: 14px;">
+
+    <table style="width:100%;border-collapse:separate;border-spacing:0;font-size:11px;color:#1f2937;">
       <thead>
-        <tr style="background: #1a73e8; color: white;">
-          <th style="padding: 12px 10px; text-align: left; border: 1px solid #ddd; color: white; font-weight: 600;">Student Name</th>
-          <th style="padding: 12px 10px; text-align: left; border: 1px solid #ddd; color: white; font-weight: 600;">Student ID</th>
-          <th style="padding: 12px 10px; text-align: left; border: 1px solid #ddd; color: white; font-weight: 600;">Class Section</th>
-          <th style="padding: 12px 10px; text-align: center; border: 1px solid #ddd; color: white; font-weight: 600;">Month</th>
-          <th style="padding: 12px 10px; text-align: center; border: 1px solid #ddd; color: white; font-weight: 600;">Year</th>
-          <th style="padding: 12px 10px; text-align: center; border: 1px solid #ddd; color: white; font-weight: 600;">Presents</th>
-          <th style="padding: 12px 10px; text-align: center; border: 1px solid #ddd; color: white; font-weight: 600;">Absents</th>
-          <th style="padding: 12px 10px; text-align: center; border: 1px solid #ddd; color: white; font-weight: 600;">Leaves</th>
-          <th style="padding: 12px 10px; text-align: center; border: 1px solid #ddd; color: white; font-weight: 600;">Total Days</th>
-          <th style="padding: 12px 10px; text-align: center; border: 1px solid #ddd; color: white; font-weight: 600;">Attendance %</th>
+        <tr style="background:#f8fafc;">
+          ${headers.map((h, i) => `
+            <th style="padding:10px 12px;text-align:${i < 3 ? 'left' : 'center'};
+                       font-weight:600;font-size:11px;letter-spacing:0.02em;
+                       color:${headerColor(h) || '#374151'};
+                       border-bottom:2px solid #e5e7eb;
+                       ${i === 0 ? 'border-top-left-radius:8px;' : ''}
+                       ${i === headers.length - 1 ? 'border-top-right-radius:8px;' : ''}">
+              ${h}
+            </th>
+          `).join('')}
         </tr>
       </thead>
       <tbody>
   `;
-  
-  data.forEach((row, index) => {
-    const bgColor = index % 2 === 0 ? '#ffffff' : '#f8f9fa';
-    const isTotalRow = row['Student Name'] === 'CLASS TOTAL' || row['Student Name'] === '═══════════════';
-    const isSeparatorRow = row['Student Name'] === '═══════════════';
-    
-    if (isSeparatorRow) {
-      tableHtml += `
-        <tr style="background: #ffffff;">
-          <td colspan="10" style="padding: 5px 0; border: none; text-align: center; color: #999; font-size: 12px;">─────────────────────────────────────────────────</td>
-        </tr>
-      `;
-      return;
-    }
-    
-    const rowBgColor = isTotalRow ? '#e3f2fd' : bgColor;
-    const fontWeight = isTotalRow ? 'bold' : 'normal';
-    
-    // Parse percentage for color coding
-    let percentageValue = 0;
-    let percentText = row['Attendance %'] || '0%';
-    if (typeof percentText === 'string') {
-      const match = percentText.match(/([\d.]+)/);
-      if (match) percentageValue = parseFloat(match[0]);
-    } else if (typeof percentText === 'number') {
-      percentageValue = percentText;
-    }
-    
-    const percentColor = isTotalRow ? '#1a2c3e' : getPercentageColor(percentageValue);
-    const percentBg = isTotalRow ? 'transparent' : getPercentageBg(percentageValue);
-    
-    tableHtml += `<tr style="background: ${rowBgColor};">`;
-    tableHtml += `<td style="padding: 10px 10px; border: 1px solid #ddd; font-weight: ${fontWeight}; color: #1a2c3e;">${row['Student Name'] || ''}</td>`;
-    tableHtml += `<td style="padding: 10px 10px; border: 1px solid #ddd; color: #1a2c3e;">${row['Student ID'] || ''}</td>`;
-    tableHtml += `<td style="padding: 10px 10px; border: 1px solid #ddd; color: #1a2c3e;">${row['Class Section'] || ''}</td>`;
-    tableHtml += `<td style="padding: 10px 10px; border: 1px solid #ddd; text-align: center; color: #1a2c3e;">${row['Month'] || ''}</td>`;
-    tableHtml += `<td style="padding: 10px 10px; border: 1px solid #ddd; text-align: center; color: #1a2c3e;">${row['Year'] || ''}</td>`;
-    tableHtml += `<td style="padding: 10px 10px; border: 1px solid #ddd; text-align: center; color: #2e7d32; font-weight: 600;">${row['Presents'] || 0}</td>`;
-    tableHtml += `<td style="padding: 10px 10px; border: 1px solid #ddd; text-align: center; color: #c62828; font-weight: 600;">${row['Absents'] || 0}</td>`;
-    tableHtml += `<td style="padding: 10px 10px; border: 1px solid #ddd; text-align: center; color: #ef6c00; font-weight: 600;">${row['Leaves'] || 0}</td>`;
-    tableHtml += `<td style="padding: 10px 10px; border: 1px solid #ddd; text-align: center; font-weight: 600; color: #1a2c3e;">${row['Total Days'] || 0}</td>`;
-    
-    // Percentage cell with colored background and bold text
-    if (isTotalRow) {
-      tableHtml += `<td style="padding: 10px 10px; border: 1px solid #ddd; text-align: center; font-weight: 700; color: #1a2c3e; background: ${percentBg};">${percentText}</td>`;
-    } else {
-      tableHtml += `<td style="padding: 10px 10px; border: 1px solid #ddd; text-align: center; font-weight: 700; color: ${percentColor}; background: ${percentBg}; border-radius: 4px;">${percentText}</td>`;
-    }
-    tableHtml += `</tr>`;
+
+  data.forEach((row, idx) => {
+    const isTotal = row['Student Name'] === 'CLASS TOTAL';
+    const isInactive = String(row.Status || '').toLowerCase() === 'inactive';
+    const bg = isTotal ? '#eff6ff' : (idx % 2 === 0 ? '#ffffff' : '#fafbfc');
+    const rowOpacity = (!isTotal && isInactive) ? '0.55' : '1';
+
+    html += `<tr style="background:${bg};opacity:${rowOpacity};">`;
+    headers.forEach((h, i) => {
+      const raw = row[h] == null ? '' : String(row[h]);
+      const isNum = /^-?\d+(\.\d+)?%?$/.test(raw) || /^\d/.test(raw);
+
+      // Status column → badge
+      if (h.toLowerCase() === 'status') {
+        const st = raw.trim();
+        let pillBg = '#f1f5f9', pillColor = '#64748b';
+        if (st === 'Active') { pillBg = '#ecfdf5'; pillColor = '#047857'; }
+        else if (st === 'Inactive') { pillBg = '#f1f5f9'; pillColor = '#64748b'; }
+        else if (st.startsWith('Present')) { pillBg = '#ecfdf5'; pillColor = '#047857'; }
+        else if (st.startsWith('Absent')) { pillBg = '#fef2f2'; pillColor = '#b91c1c'; }
+        else if (st.startsWith('Leave')) { pillBg = '#fff7ed'; pillColor = '#c2410c'; }
+        else if (st === 'Not Marked') { pillBg = '#f1f5f9'; pillColor = '#94a3b8'; }
+        html += `<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;">
+                   <span style="display:inline-block;padding:3px 10px;border-radius:999px;
+                                background:${pillBg};color:${pillColor};
+                                font-size:10px;font-weight:600;letter-spacing:0.02em;">
+                     ${st || '—'}
+                   </span>
+                 </td>`;
+        return;
+      }
+
+      // Attendance % — colour by threshold
+      if (h.toLowerCase() === 'attendance %') {
+        const pct = parseFloat(raw) || 0;
+        const pctColor = isTotal ? '#1e40af' : (pct >= 75 ? '#047857' : pct >= 50 ? '#c2410c' : '#b91c1c');
+        const pctBg = isTotal ? '#eff6ff' : (pct >= 75 ? '#ecfdf5' : pct >= 50 ? '#fff7ed' : '#fef2f2');
+        html += `<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;
+                           background:${pctBg};color:${pctColor};font-weight:700;font-size:11px;">
+                   ${raw || '0%'}
+                 </td>`;
+        return;
+      }
+
+      // Tinted summary columns
+      const k = h.toLowerCase();
+      let bgCell = 'transparent', fgCell = '#1f2937', weight = 500;
+      if (k === 'presents' || k === 'present') { bgCell = '#ecfdf5'; fgCell = '#047857'; weight = 700; }
+      else if (k === 'absents' || k === 'absent') { bgCell = '#fef2f2'; fgCell = '#b91c1c'; weight = 700; }
+      else if (k === 'leaves' || k === 'leave') { bgCell = '#fff7ed'; fgCell = '#c2410c'; weight = 700; }
+      else if (k === 'total days' || k === 'days') { bgCell = '#eff6ff'; fgCell = '#1e40af'; weight = 700; }
+      else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell = '#faf5ff'; fgCell = '#7e22ce'; weight = 700; }
+      else if (k === 'working hours') { bgCell = '#eff6ff'; fgCell = '#1e40af'; weight = 700; }
+
+      // First column: monospaced if numeric (Std ID), semibold if Name
+      let extra = '';
+      if (i === 0 && isNum) {
+        extra = 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#334155;font-size:11px;';
+      } else if (i === 0) {
+        extra = 'font-weight:600;color:#0f172a;';
+      } else if (isTotal) {
+        extra = 'font-weight:700;color:#1e40af;';
+      }
+
+      html += `<td style="padding:8px ${i < 3 ? '12px' : '8px'};
+                         text-align:${i < 3 ? 'left' : 'center'};
+                         border-bottom:1px solid #f1f5f9;
+                         background:${bgCell};color:${isTotal ? '#1e40af' : fgCell};
+                         font-weight:${isTotal ? 700 : weight};font-size:11px;${extra}">
+                 ${raw || '—'}
+               </td>`;
+    });
+    html += '</tr>';
   });
-  
-  tableHtml += `
-      </tbody>
-    </table>
-    <div style="margin-top: 20px; padding: 10px; background: #f5f5f5; border-radius: 6px; text-align: center; font-size: 12px; color: #666;">
-      <span style="margin-right: 20px;">📅 Report generated on: ${currentDate}</span>
-      <span>📚 Total Students: ${data.filter(row => row['Student Name'] && row['Student Name'] !== 'CLASS TOTAL' && row['Student Name'] !== '═══════════════').length}</span>
-    </div>
-    <div style="margin-top: 10px; text-align: center; font-size: 12px; color: #999;">
-      Generated by Student Attendance System | Monthly Summary Report
+
+  html += '</tbody></table>';
+  html += `
+    <div style="margin-top:20px;padding-top:14px;border-top:1px solid #e5e7eb;
+                font-size:10.5px;color:#94a3b8;line-height:1.7;text-align:center;">
+      <div>This is a system generated report.</div>
+      <div>Generated by Student Attendance System</div>
     </div>
   `;
-  
-  reportDiv.innerHTML = tableHtml;
+
+  reportDiv.innerHTML = html;
   document.body.appendChild(reportDiv);
-  
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
- try {
+  await new Promise(r => setTimeout(r, 100));
+
+  try {
     const canvas = await html2canvas(reportDiv, {
-      scale: 3,
-      backgroundColor: '#ffffff',
-      useCORS: true,
-      logging: false,
+      scale: 3, backgroundColor: '#ffffff', useCORS: true, logging: false,
       onclone: function(clonedDoc) {
-        // FORCE LIGHT THEME - THIS FIXES EVERYTHING
+        // FORCE LIGHT THEME (marking-app dark-mode guard)
         clonedDoc.documentElement.setAttribute('data-theme', 'light');
-        
-        // Force all text in the cloned document to be dark
         const allElements = clonedDoc.querySelectorAll('*');
         allElements.forEach(el => {
-          if (el.style) {
-            // Only set color if not already explicitly set
-            if (!el.style.color || el.style.color === '') {
-              el.style.color = '#1a2c3e';
-            }
+          if (el.style && (!el.style.color || el.style.color === '')) {
+            el.style.color = '#1a2c3e';
           }
         });
       }
     });
     document.body.removeChild(reportDiv);
-    
     const link = document.createElement('a');
     link.download = `${filename}.png`;
     link.href = canvas.toDataURL('image/png');
     link.click();
-    
+    showLoading(false);
+    showPopup('Success', `Daily attendance PNG report downloaded!`, 'success');
+  } catch (err) {
+    document.body.removeChild(reportDiv);
+    showLoading(false);
+    showPopup('Error', `Failed to generate PNG: ${err.message}`, 'error');
+  }
+}
+
+// Map the 14-column monthly formattedData (CSV shape, incl. Working Days)
+// to the portal's 12-column PNG shape: merged 'Class Section', plural
+// Presents/Absents/Leaves, 'Attendance %' as a '66.67%' string. The CSV
+// download keeps the full 14-column shape — only the PNG uses this.
+function monthlyPngRows_(formattedData) {
+  return formattedData.map(function (r) {
+    return {
+      'Student Name': r['Student Name'],
+      'Student ID': r['Student ID'],
+      'Class Section': r['Class'] + '-' + r['Section'],
+      'Month': r['Month'],
+      'Year': r['Year'],
+      'Presents': r['Present'],
+      'Absents': r['Absent'],
+      'Leaves': r['Leave'],
+      'Total Days': r['Total Days'],
+      'Present Hours': r['Present Hours'],
+      'Attendance %': (r['Attendance %'] == null ? '0%' : String(r['Attendance %']) + '%'),
+      'Status': r['Status']
+    };
+  });
+}
+
+// Monthly Summary PNG renderer (v5.3): modelled on the MIS portal's
+// renderAsPNG — same title block (pill + title + subtitle), compact 11px
+// table with per-column header colours, Status as a coloured pill, CLASS
+// TOTAL row highlighted, html2canvas scale 3, no fixed width (so the table
+// fits on one page). Replaces the dead v1 renderer of the same name.
+// data = rows in the portal's 12-column shape (see monthlyPngRows_);
+// filename WITHOUT the .png extension (appended here, portal-style).
+async function generateMonthlyPNGReport(data, filename, title, subtitle) {
+  if (!data || data.length === 0) {
+    showLoading(false);
+    showPopup('Error', 'No rows to render.', 'error');
+    return;
+  }
+  showLoading(true, "Generating PNG report...");
+
+  const reportDiv = document.createElement('div');
+  reportDiv.setAttribute('data-theme', 'light');
+  reportDiv.style.cssText = 'position:absolute;top:-9999px;left:-9999px;background:white;padding:30px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1f2937;';
+
+  const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const headers = Object.keys(data[0]);
+
+  // Per-header colour (portal renderAsPNG).
+  const headerColor = (h) => {
+    const k = String(h).toLowerCase();
+    if (k === 'status') return '';
+    if (k === 'presents' || k === 'present') return '#047857';
+    if (k === 'absents' || k === 'absent') return '#b91c1c';
+    if (k === 'leaves' || k === 'leave') return '#c2410c';
+    if (k === 'total days' || k === 'days') return '#1e40af';
+    if (k === 'present hours' || k === 'total hours' || k === 'hours') return '#7e22ce';
+    if (k === 'attendance %' || k === '%') return '#1e40af';
+    return '#374151';
+  };
+
+  let html = `
+    <div style="margin-bottom:24px;text-align:center;">
+      <div style="display:inline-block;padding:6px 14px;background:#eff6ff;color:#1e40af;
+                  font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;
+                  border-radius:999px;margin-bottom:10px;">
+        ${title}
+      </div>
+      <div style="font-size:22px;font-weight:700;color:#111827;margin-bottom:4px;">
+        ${title}
+      </div>
+      <div style="font-size:12px;color:#6b7280;">
+        ${subtitle || ''} &nbsp;·&nbsp; Generated on ${currentDate}
+      </div>
+    </div>
+
+    <table style="width:100%;border-collapse:separate;border-spacing:0;font-size:11px;color:#1f2937;">
+      <thead>
+        <tr style="background:#f8fafc;">
+          ${headers.map((h, i) => `
+            <th style="padding:10px 12px;text-align:${i < 3 ? 'left' : 'center'};
+                       font-weight:600;font-size:11px;letter-spacing:0.02em;
+                       color:${headerColor(h) || '#374151'};
+                       border-bottom:2px solid #e5e7eb;
+                       ${i === 0 ? 'border-top-left-radius:8px;' : ''}
+                       ${i === headers.length - 1 ? 'border-top-right-radius:8px;' : ''}">
+              ${h}
+            </th>
+          `).join('')}
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  data.forEach((row, idx) => {
+    const isTotal = row['Student Name'] === 'CLASS TOTAL';
+    const isInactive = String(row.Status || '').toLowerCase() === 'inactive';
+    const bg = isTotal ? '#eff6ff' : (idx % 2 === 0 ? '#ffffff' : '#fafbfc');
+    const rowOpacity = (!isTotal && isInactive) ? '0.55' : '1';
+
+    html += `<tr style="background:${bg};opacity:${rowOpacity};">`;
+    headers.forEach((h, i) => {
+      const raw = row[h] == null ? '' : String(row[h]);
+      const isNum = /^-?\d+(\.\d+)?%?$/.test(raw) || /^\d/.test(raw);
+
+      // Status column → badge
+      if (h.toLowerCase() === 'status') {
+        const st = raw.trim();
+        let pillBg = '#f1f5f9', pillColor = '#64748b';
+        if (st === 'Active') { pillBg = '#ecfdf5'; pillColor = '#047857'; }
+        else if (st === 'Inactive') { pillBg = '#f1f5f9'; pillColor = '#64748b'; }
+        else if (st.startsWith('Present')) { pillBg = '#ecfdf5'; pillColor = '#047857'; }
+        else if (st.startsWith('Absent')) { pillBg = '#fef2f2'; pillColor = '#b91c1c'; }
+        else if (st.startsWith('Leave')) { pillBg = '#fff7ed'; pillColor = '#c2410c'; }
+        else if (st === 'Not Marked') { pillBg = '#f1f5f9'; pillColor = '#94a3b8'; }
+        html += `<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;">
+                   <span style="display:inline-block;padding:3px 10px;border-radius:999px;
+                                background:${pillBg};color:${pillColor};
+                                font-size:10px;font-weight:600;letter-spacing:0.02em;">
+                     ${st || '—'}
+                   </span>
+                 </td>`;
+        return;
+      }
+
+      // Attendance % — colour by threshold
+      if (h.toLowerCase() === 'attendance %') {
+        const pct = parseFloat(raw) || 0;
+        const pctColor = isTotal ? '#1e40af' : (pct >= 75 ? '#047857' : pct >= 50 ? '#c2410c' : '#b91c1c');
+        const pctBg = isTotal ? '#eff6ff' : (pct >= 75 ? '#ecfdf5' : pct >= 50 ? '#fff7ed' : '#fef2f2');
+        html += `<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;
+                           background:${pctBg};color:${pctColor};font-weight:700;font-size:11px;">
+                   ${raw || '0%'}
+                 </td>`;
+        return;
+      }
+
+      // Tinted summary columns
+      const k = h.toLowerCase();
+      let bgCell = 'transparent', fgCell = '#1f2937', weight = 500;
+      if (k === 'presents' || k === 'present') { bgCell = '#ecfdf5'; fgCell = '#047857'; weight = 700; }
+      else if (k === 'absents' || k === 'absent') { bgCell = '#fef2f2'; fgCell = '#b91c1c'; weight = 700; }
+      else if (k === 'leaves' || k === 'leave') { bgCell = '#fff7ed'; fgCell = '#c2410c'; weight = 700; }
+      else if (k === 'total days' || k === 'days') { bgCell = '#eff6ff'; fgCell = '#1e40af'; weight = 700; }
+      else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell = '#faf5ff'; fgCell = '#7e22ce'; weight = 700; }
+
+      // First column: monospaced if numeric (Std ID), semibold if Name
+      let extra = '';
+      if (i === 0 && isNum) {
+        extra = 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#334155;font-size:11px;';
+      } else if (i === 0) {
+        extra = 'font-weight:600;color:#0f172a;';
+      } else if (isTotal) {
+        extra = 'font-weight:700;color:#1e40af;';
+      }
+
+      html += `<td style="padding:8px ${i < 3 ? '12px' : '8px'};
+                         text-align:${i < 3 ? 'left' : 'center'};
+                         border-bottom:1px solid #f1f5f9;
+                         background:${bgCell};color:${isTotal ? '#1e40af' : fgCell};
+                         font-weight:${isTotal ? 700 : weight};font-size:11px;${extra}">
+                 ${raw || '—'}
+               </td>`;
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  html += `
+    <div style="margin-top:20px;padding-top:14px;border-top:1px solid #e5e7eb;
+                font-size:10.5px;color:#94a3b8;line-height:1.7;text-align:center;">
+      <div>This is a system generated report.</div>
+      <div>Generated by Student Attendance System</div>
+    </div>
+  `;
+
+  reportDiv.innerHTML = html;
+  document.body.appendChild(reportDiv);
+  await new Promise(r => setTimeout(r, 100));
+
+  try {
+    const canvas = await html2canvas(reportDiv, {
+      scale: 3, backgroundColor: '#ffffff', useCORS: true, logging: false,
+      onclone: function(clonedDoc) {
+        // FORCE LIGHT THEME (marking-app dark-mode guard)
+        clonedDoc.documentElement.setAttribute('data-theme', 'light');
+        const allElements = clonedDoc.querySelectorAll('*');
+        allElements.forEach(el => {
+          if (el.style && (!el.style.color || el.style.color === '')) {
+            el.style.color = '#1a2c3e';
+          }
+        });
+      }
+    });
+    document.body.removeChild(reportDiv);
+    const link = document.createElement('a');
+    link.download = `${filename}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
     showLoading(false);
     showPopup('Success', `Monthly summary PNG report downloaded!`, 'success');
-  } catch (error) {
+  } catch (err) {
     document.body.removeChild(reportDiv);
     showLoading(false);
-    showPopup('Error', `Failed to generate PNG: ${error.message}`, 'error');
+    showPopup('Error', `Failed to generate PNG: ${err.message}`, 'error');
   }
 }
-
 function downloadCSV(data, filename) {
   const headers = Object.keys(data[0]);
   const csvRows = [headers.join(',')];
@@ -6771,3 +7143,4 @@ function setupEpisodicEventListeners() {
 </script>
 </body>
 </html>
+
