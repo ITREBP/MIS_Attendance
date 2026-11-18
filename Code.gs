@@ -55,7 +55,7 @@ function getMarkedClassSections(date) {
       let rowDate;
       try { rowDate = new Date(data[i][dateCol]).toLocaleDateString('en-CA'); } catch (e) { continue; }
       if (rowDate !== targetDate) continue;
-      if (typeCol !== -1 && data[i][typeCol] === 'Episodic') continue; // sirf normal attendance
+      if (typeCol !== -1 && String(data[i][typeCol] || '').trim().toLowerCase() === 'episodic') continue; // sirf normal attendance
       if (data[i][classCol]) marked.add(data[i][classCol]);
     }
     return Array.from(marked);
@@ -80,9 +80,22 @@ function forceCacheRefresh() {
  * Also invalidates cache immediately
  * @param {string} username - The username to update
  * @param {string} newStatus - New status ('Active' or 'Inactive')
- * @returns {boolean} - Success status
+ * @param {string} callerUsername - The admin making the change
+ * @returns {boolean} - Success status (false when the user does not exist)
  */
-function updateUserStatus(username, newStatus) {
+function updateUserStatus(username, newStatus, callerUsername) {
+  // v5.6: only an administrator may change a user's status, and the new value
+  // must be Active or Inactive. (No HTML caller — direct calls only.)
+  // v5.8 (F5, corrected 19 Nov 2026): school scoping — NO cross-school access
+  // for anyone, superadmin included. The caller may change status only for
+  // users at a school where the caller themself holds an admin/superadmin
+  // Users row (getAdminCallerScope_); the row updated is the target's row at
+  // one of those schools, not blindly the first row with the username. A
+  // target with a blank REC_ID matches (v5.6 grandfathering). To work at
+  // another school, the caller must be assigned there and log in with that
+  // school's credentials.
+  requireAdminCaller_(callerUsername);
+  if (newStatus !== 'Active' && newStatus !== 'Inactive') throw new Error('Status must be Active or Inactive.');
   try {
     const cache = CacheService.getScriptCache();
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Users');
@@ -94,53 +107,66 @@ function updateUserStatus(username, newStatus) {
     const statusCol = headers.indexOf('Status');
     const inactiveDateCol = headers.indexOf('Inactive_Date');
     const creationDateCol = headers.indexOf('Creation_Date');
+    const recIdCol = headers.indexOf('REC_ID');
     
+    // v5.8 (F5, corrected): pick the target row the caller is allowed to
+    // touch — the first row whose REC_ID is one of the caller's schools, or
+    // whose REC_ID is blank (v5.6 grandfathering). A superadmin gets no
+    // exception: without a row at the target's school they are refused like
+    // any other admin. A target with no row at the caller's schools is refused.
+    const scope = getAdminCallerScope_(callerUsername);
+    let targetRow = -1;
     for (let i = 1; i < data.length; i++) {
-      if (data[i][usernameCol] === username) {
-        const currentStatus = data[i][statusCol] || 'Active';
-        const row = i + 1;
-        
-        // Update status
-        sheet.getRange(row, statusCol + 1).setValue(newStatus);
-        
-        // If status is changing to Inactive, set Inactive_Date
-        if (newStatus === 'Inactive' && currentStatus !== 'Inactive') {
-          const inactiveDate = new Date();
-          sheet.getRange(row, inactiveDateCol + 1).setValue(inactiveDate);
-          
-          // CRITICAL: Force immediate cache invalidation
-          cache.remove(`user_${username}`); // Remove individual user cache
-          cache.remove('userDataCache'); // Remove entire user cache
-          
-          // Also invalidate any active sessions
-          const userCache = cache.get(`session_${username}`);
-          if (userCache) {
-            cache.remove(`session_${username}`);
-          }
-        }
-        
-        // If status is changing to Active, clear Inactive_Date
-        if (newStatus === 'Active' && currentStatus === 'Inactive') {
-          sheet.getRange(row, inactiveDateCol + 1).clearContent();
-          
-          // Update cache
-          cache.remove(`user_${username}`);
-          cache.remove('userDataCache');
-        }
-        
-        // Set Creation_Date if it's empty (for new users)
-        if (!data[i][creationDateCol] && creationDateCol !== -1) {
-          sheet.getRange(row, creationDateCol + 1).setValue(new Date());
-        }
-        
-        // Spreadsheet flush to ensure changes are saved
-        SpreadsheetApp.flush();
-        
-        return true;
+      if (data[i][usernameCol] !== username) continue;
+      const targetRec = recIdCol !== -1 ? String(data[i][recIdCol] || '').trim() : '';
+      if (!targetRec || scope.recIds.indexOf(targetRec) !== -1) { targetRow = i; break; }
+    }
+    if (targetRow === -1) {
+      const found = data.slice(1).some(function (row) { return row[usernameCol] === username; });
+      if (!found) return false; // User not found (unchanged)
+      throw new Error('You can only change the status of users at your own school.');
+    }
+    const i = targetRow;
+    const currentStatus = data[i][statusCol] || 'Active';
+    const row = i + 1;
+    
+    // Update status
+    sheet.getRange(row, statusCol + 1).setValue(newStatus);
+    
+    // If status is changing to Inactive, set Inactive_Date
+    if (newStatus === 'Inactive' && currentStatus !== 'Inactive') {
+      const inactiveDate = new Date();
+      sheet.getRange(row, inactiveDateCol + 1).setValue(inactiveDate);
+      
+      // CRITICAL: Force immediate cache invalidation
+      cache.remove(`user_${username}`); // Remove individual user cache
+      cache.remove('userDataCache'); // Remove entire user cache
+      
+      // Also invalidate any active sessions
+      const userCache = cache.get(`session_${username}`);
+      if (userCache) {
+        cache.remove(`session_${username}`);
       }
     }
     
-    return false; // User not found
+    // If status is changing to Active, clear Inactive_Date
+    if (newStatus === 'Active' && currentStatus === 'Inactive') {
+      sheet.getRange(row, inactiveDateCol + 1).clearContent();
+      
+      // Update cache
+      cache.remove(`user_${username}`);
+      cache.remove('userDataCache');
+    }
+    
+    // Set Creation_Date if it's empty (for new users)
+    if (!data[i][creationDateCol] && creationDateCol !== -1) {
+      sheet.getRange(row, creationDateCol + 1).setValue(new Date());
+    }
+    
+    // Spreadsheet flush to ensure changes are saved
+    SpreadsheetApp.flush();
+    
+    return true;
     
   } catch (e) {
     console.error('Error updating user status:', e);
@@ -274,39 +300,34 @@ function login(username, password) {
     let userStatus = null;
     let userData = null;
     
+    // v5.7: the row is picked by username AND password together, so the same
+    // username can live at two schools — the password prefix picks the school.
+    // (Before, the first row with the username always won and the other
+    // school's row was never reached.)
     for (let i = 1; i < data.length; i++) {
-      if (data[i][usernameCol] === username) {
-        userFound = true;
-        userRow = i;
-        userStatus = data[i][statusCol] || 'Active';
-        
-        // FIRST: Check if user is active before checking password
-if (userStatus === 'Inactive') {
-  // Force cache update
-  cache.remove('userDataCache');
-  initializeUserCache();
-  
-  // Throw a clear error that will be caught and displayed properly
-  throw new Error('User account is inactive. Please contact administrator.');
-}
-        
-       // SECOND: Check password
-        if (data[i][passwordCol] === password) {
-          // THIRD: Sirf UserType 'teacher' wale users hi login kar sakte hain
-          const userType = String(data[i][typeCol] || '').trim();
-          if (userType.toLowerCase() !== 'teacher') {
-            return { blocked: true, message: 'This account is not authorized to use the attendance system.' };
-          }
-
-          userData = {
-            password: data[i][passwordCol],
-            type: data[i][typeCol] || 'teacher',
-            teacherName: data[i][teacherNameCol] || data[i][usernameCol],
-            status: userStatus
-          };
-        }
-        break;
+      if (data[i][usernameCol] !== username) continue;
+      userFound = true;
+      if (data[i][passwordCol] !== password) continue; // another row may match
+      userRow = i;
+      userStatus = data[i][statusCol] || 'Active';
+      if (userStatus === 'Inactive') {
+        // Force cache update
+        cache.remove('userDataCache');
+        initializeUserCache();
+        throw new Error('User account is inactive. Please contact administrator.');
       }
+      // Sirf UserType 'teacher' wale users hi login kar sakte hain
+      const userType = String(data[i][typeCol] || '').trim();
+      if (userType.toLowerCase() !== 'teacher') {
+        return { blocked: true, message: 'This account is not authorized to use the attendance system.' };
+      }
+      userData = {
+            password: data[i][passwordCol],
+        type: data[i][typeCol] || 'teacher',
+        teacherName: data[i][teacherNameCol] || data[i][usernameCol],
+        status: userStatus
+      };
+      break;
     }
     
     if (!userFound) {
@@ -413,7 +434,7 @@ function validateUserLogin(username) {
   }
 }
 
-function getUserSchedule(username) {
+function getUserSchedule(username, schoolRecId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const userSheet = ss.getSheetByName('Users');
   if (!userSheet) throw new Error('Users sheet not found');
@@ -432,6 +453,15 @@ function getUserSchedule(username) {
 
   for (let i = 1; i < data.length; i++) {
     if (data[i][usernameCol] === username) {
+      // v5.7: same teacher at two schools — use the row for the school they
+      // logged into (a blank REC_ID on the row matches any school).
+      if (schoolRecId) {
+        const recCol = headers.indexOf('REC_ID');
+        if (recCol !== -1) {
+          const rowRec = String(data[i][recCol] || '').trim();
+          if (rowRec && rowRec !== String(schoolRecId).trim()) continue;
+        }
+      }
       const allowedDays = data[i][daysCol] ? data[i][daysCol].split(',').map(day => day.trim()) : [];
       const startTime = data[i][startTimeCol] || '';
       const endTime = data[i][endTimeCol] || '';
@@ -449,8 +479,8 @@ function getUserSchedule(username) {
   throw new Error('No schedule assigned for this user');
 }
 
-function isWithinSchedule(username) {
-  const schedule = getUserSchedule(username);
+function isWithinSchedule(username, schoolRecId) {
+  const schedule = getUserSchedule(username, schoolRecId);
   const now = new Date();
   const currentDay = now.toLocaleString('en-US', { weekday: 'long', timeZone: 'Asia/Karachi' });
   const currentTime = now.toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Karachi' });
@@ -489,9 +519,10 @@ function isWithinSchedule(username) {
 // version read the formula-backed Summary sheet, whose J1 lookup errored with
 // #N/A on any day before the first marking; this version has no Summary-sheet
 // dependency.
-function getSummaryData(username, classSection, dateStr) {
+function getSummaryData(username, classSection, dateStr, schoolRecId) {
   try {
-    const assignedSections = getAssignedClassSections(username);
+    // v5.8 (O5): the logged-in school scopes the assignment list.
+    const assignedSections = getAssignedClassSections(username, schoolRecId);
     Logger.log('Assigned Sections for ' + username + ': ' + assignedSections);
     if (!assignedSections || assignedSections.length === 0) {
       Logger.log('No assigned sections for user: ' + username);
@@ -580,8 +611,9 @@ function getSummaryData(username, classSection, dateStr) {
       let category = '';
       let hours = '';
       try {
-        let wh = checkDailyHours(summaryDate, cs, 'normal');
-        if (!wh || !wh.exists) wh = checkDailyHours(summaryDate, cs);
+        // v5.8 (O3): the day's setup hours from this school's rows only.
+        let wh = checkDailyHours(summaryDate, cs, 'normal', schoolRecId);
+        if (!wh || !wh.exists) wh = checkDailyHours(summaryDate, cs, null, schoolRecId);
         if (wh && wh.exists) {
           category = wh.category == null ? '' : wh.category;
           hours = wh.hours == null ? '' : wh.hours;
@@ -606,26 +638,41 @@ function getSummaryData(username, classSection, dateStr) {
   }
 }
 
-function getAssignedClassSections(username) {
+function getAssignedClassSections(username, schoolRecId) {
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Teacher_Assignments');
     if (!sheet) throw new Error('Teacher_Assignments sheet not found');
 
     const data = sheet.getDataRange().getValues();
+    const recCol = data[0].indexOf('REC_ID');
+    const wantRec = String(schoolRecId || '').trim();
+    // v5.8 (O5): no school, no classes. The old first-row-wins fallback
+    // silently offered another school's classes (F4's server side). Callers
+    // must pass the logged-in school. An empty list is what every caller
+    // already handles: requireAssignedClass_ treats it as "no constraint"
+    // (same as a teacher with no assignment rows), getSummaryData returns
+    // [], and the report guards refuse with "not assigned".
+    if (!wantRec) return [];
+    const validSections = getClassSections();
+    const out = [];
     for (let i = 1; i < data.length; i++) {
       if (data[i][0] === username) {
+        // v5.6: only this school's rows count (blank REC_ID = any school).
+        if (recCol !== -1) {
+          const rowRec = String(data[i][recCol] || '').trim();
+          if (rowRec && rowRec !== wantRec) continue;
+        }
         const sections = data[i][1] ? data[i][1].split(',').filter(s => s.trim()) : [];
-        const validSections = getClassSections();
-        return sections.filter(section => validSections.includes(section));
+        const filtered = sections.filter(section => validSections.includes(section));
+        filtered.forEach(function (s) { if (out.indexOf(s) === -1) out.push(s); });
       }
     }
-    return [];
+    return out;
   } catch (e) {
     Logger.log('Error in getAssignedClassSections: ' + e.message);
     throw e;
   }
 }
-
 // ============ PREVIOUS DATE PERMISSION HELPERS ============
 
 /** Previous_Date_Permissions ki rows — naye columns header se padhta hai, position se farq nahi */
@@ -714,10 +761,16 @@ function formatPrevPermExpiry_(expiresAt) {
 const PREV_PERM_EXPIRED_MSG =
   'Your previous-date access has expired (24-hour limit crossed). Please request a new permission from the administrator.';
 
+// v5.8 (O4): a permission row that was never live (no Granted_At and no
+// Expires_At) is NOT expired — it gets the no-permission message instead.
+const PREV_PERM_NO_PERMISSION_MSG =
+  'You do not have permission to mark attendance for this previous date. Please request a new permission from the administrator.';
+
 function verifyPreviousPassword(username, password, attendanceType, date, classSection) {
   try {
     const rows = getPrevPermRows_();
     let expired = false;
+    let neverLive = false;
     const typed = stripPrevPermPrefix_(password);
 
     for (let i = 0; i < rows.length; i++) {
@@ -731,11 +784,19 @@ function verifyPreviousPassword(username, password, attendanceType, date, classS
         if (sheetDate.toLocaleDateString('en-CA') !== new Date(date).toLocaleDateString('en-CA')) continue;
       }
       if (!prevPermClassMatches_(r, classSection)) continue;
-      if (!prevPermNotExpired_(r)) { expired = true; continue; }
+      // v5.8 (O4): only a row that HAD an expiry which has passed counts as
+      // expired. A row that was never live (no dates at all) is refused with
+      // the no-permission message, not the expired message.
+      if (!prevPermNotExpired_(r)) {
+        if (prevPermEffectiveExpiry_(r)) expired = true;
+        else neverLive = true;
+        continue;
+      }
       return true;
     }
 
     if (expired) throw new Error(PREV_PERM_EXPIRED_MSG);
+    if (neverLive) throw new Error(PREV_PERM_NO_PERMISSION_MSG);
     return false;
   } catch (e) {
     Logger.log(`Error in verifyPreviousPassword: ${e.message}`);
@@ -743,7 +804,7 @@ function verifyPreviousPassword(username, password, attendanceType, date, classS
   }
 }
 
-function checkPreviousDatePermission(username, date, attendanceType, classSection) {
+function checkPreviousDatePermission(username, date, attendanceType, classSection, schoolRecId) {
   try {
     const rows = getPrevPermRows_();
     const dateString = new Date(date).toLocaleDateString('en-CA'); // YYYY-MM-DD
@@ -752,6 +813,9 @@ function checkPreviousDatePermission(username, date, attendanceType, classSectio
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       if (r.username !== username) continue;
+      // v5.6: a permission granted at another school does not unlock this one
+      // (blank REC_ID on the row = any school, for older rows).
+      if (!rowRecMatches_(r.recId, schoolRecId)) continue;
 
       const sheetDate = new Date(r.dateRaw);
       if (isNaN(sheetDate.getTime())) {
@@ -761,7 +825,15 @@ function checkPreviousDatePermission(username, date, attendanceType, classSectio
       if (sheetDate.toLocaleDateString('en-CA') !== dateString) continue;
       if (!prevPermTypeMatches_(r, attendanceType)) continue;
       if (!prevPermClassMatches_(r, classSection)) continue;
-      if (!prevPermNotExpired_(r)) { expired = true; continue; }
+      // v5.8 (O4): only a row that HAD an expiry which has passed counts as
+      // expired. A row that was never live (no dates at all) does not set
+      // expired, so this returns false and the caller throws its own
+      // no-permission message ("You do not have permission to ... for this
+      // previous date."). Refusal and zero writes are unchanged.
+      if (!prevPermNotExpired_(r)) {
+        if (prevPermEffectiveExpiry_(r)) expired = true;
+        continue;
+      }
 
       return true;
     }
@@ -866,7 +938,7 @@ function parseSheetDate(dateValue) {
   return null;
 }
 
-function getStudentList(classSection, date) {
+function getStudentList(classSection, date, schoolRecId) {
   try {
     Logger.log(`getStudentList called with classSection: ${classSection}, date: ${date}`);
     if (!classSection || !classSection.includes('-')) {
@@ -903,6 +975,7 @@ function getStudentList(classSection, date) {
     const sectionCol = studentHeaders.indexOf('Student_Section');
     const statusCol = studentHeaders.indexOf('Status');
     const dojCol = studentHeaders.indexOf('Date_of_Joining');
+    const recIdCol = studentHeaders.indexOf('REC_ID');
 
     for (let i = 1; i < studentData.length; i++) {
       const status = studentData[i][statusCol] ? studentData[i][statusCol].toString().toLowerCase() : '';
@@ -911,6 +984,8 @@ function getStudentList(classSection, date) {
       
       // Check if student should be included based on joining date
       const shouldIncludeByDate = !dateOfJoining || dateOfJoining <= targetDate;
+      // v5.6: school-scoped roster (blank REC_ID on the student row = any school).
+      if (!rowRecMatches_(recIdCol !== -1 ? studentData[i][recIdCol] : '', schoolRecId)) continue;
       
       if (studentData[i][classCol] === className && 
           studentData[i][sectionCol] === section && 
@@ -956,7 +1031,7 @@ function getStudentList(classSection, date) {
           // ✅ CRITICAL: Only get Normal attendance, NOT Episodic
           const attendanceType = attendanceData[j][attendanceHeaderMap.get('Attendance_Type')];
           // Skip if this is an episodic record
-          if (attendanceType !== 'Episodic') {
+          if (String(attendanceType || '').trim().toLowerCase() !== 'episodic') {
             studentsMap.get(stdId).attendanceStatus = attendanceData[j][attendanceHeaderMap.get('Status')] || 'Not marked';
             const hrsIdx = attendanceHeaderMap.get('Hours');
             if (hrsIdx !== undefined) {
@@ -1082,7 +1157,7 @@ function getEpisodicStudentList(classSection, date, eventName) {
       
       // ✅ CRITICAL: Only match EPISODIC type!
       if (rowDate === targetDateStr &&
-          rowType === 'Episodic' &&           // ← ONLY Episodic records
+          String(rowType || '').trim().toLowerCase() === 'episodic' &&           // ← ONLY Episodic records
           rowEvent === eventName &&
           rowClass === classSection) {
         const studentId = String(row[stdIdColAtt]);
@@ -1123,8 +1198,26 @@ function markAttendance(attendanceData, class_section, date, username, isBarcode
 
 // ✅ SERVER-SIDE SCHEDULE CHECK for Current Date Only
   const todayStr_ = Utilities.formatDate(new Date(), 'Asia/Karachi', 'yyyy-MM-dd');
+
+  // v5.6: caller verification (unknown / non-teacher / Inactive refused). The
+  // school comes from the caller's Users row; the sent recId only disambiguates a username that exists at two schools.
+  const caller = requireTeacherCaller_(username, recId);
+  const schoolRecId = caller.recId || String(recId || '').trim();
+  requireAssignedClass_(username, class_section, schoolRecId);
+  if (!isRealYMD_(date)) throw new Error('Invalid date: ' + date + '. Use a real yyyy-MM-dd date.');
+  if (date > todayStr_) throw new Error('Future dates cannot be marked.');
+  // v5.6: past-date permission is checked BEFORE any write, so a refused
+  // marking leaves no setup row behind.
+  if (date < todayStr_) {
+    const allowed = checkPreviousDatePermission(username, date, 'Normal', class_section, schoolRecId);
+    if (!allowed) {
+      throw new Error('You do not have permission to mark attendance for this previous date. Please request a new permission from the administrator.');
+    }
+  }
+
+
   if (new Date(date).toLocaleDateString('en-CA') === todayStr_) {
-    isWithinSchedule(username); // Will throw error if outside allowed time
+    isWithinSchedule(username, schoolRecId); // Will throw error if outside allowed time
   }
 
   Logger.log(`Starting markAttendance with date: ${date}, classSection: ${class_section}, isBarcode: ${isBarcode}, records: ${attendanceData.length}`);
@@ -1144,7 +1237,7 @@ function markAttendance(attendanceData, class_section, date, username, isBarcode
     // -------------------------------------------------
     // NEW: Check that hours & category are defined for the day
     // -------------------------------------------------
-let hoursCheck = checkDailyHours(date, class_section, 'normal');
+let hoursCheck = checkDailyHours(date, class_section, 'normal', schoolRecId);
 console.log('Hours check result:', hoursCheck);  // Add this for debugging
 
     if (!hoursCheck.exists) {
@@ -1153,9 +1246,15 @@ console.log('Hours check result:', hoursCheck);  // Add this for debugging
       if (!category || !hours) {
         throw new Error('Hours and category must be set before marking attendance.');
       }
-      setDailyHours([{ date, classSection: class_section, category, hours, teacherId: username }], 'normal', recId);
+      // v5.6: the client-sent category/hours must be valid configured values.
+      validateHoursValue_(hours, 'normal');
+      validateCategoryForClass_(category, 'normal', class_section);
+      setDailyHours([{ date, classSection: class_section, category, hours, teacherId: username }], 'normal', recId, username);
       hoursCheck = { exists: true, category, hours };
     }
+    // v5.6: the day's setup hours must be a usable number.
+    const dayHours = Number(hoursCheck.hours);
+    if (isNaN(dayHours) || dayHours <= 0) throw new Error('The hours set for ' + class_section + ' on ' + date + ' are not valid. Fix the hours setup first.');
 
     // -------------------------------------------------
     // Permissions check - remains outside the lock (read-only, fast)
@@ -1177,18 +1276,6 @@ console.log('Hours check result:', hoursCheck);  // Add this for debugging
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRegex.test(date)) {
       throw new Error(`Invalid date format: ${date}. Please use YYYY-MM-DD (e.g., 2025-10-03).`);
-    }
-
-    // -------------------------------------------------
-    // Previous-date permission check (server-side)
-    // Pichhli date ke liye live Previous_Date_Permissions row
-    // (user + date + class) zaroori hai. Aaj ki date ke liye nahi.
-    // -------------------------------------------------
-    if (date < todayStr_) {
-      const allowed = checkPreviousDatePermission(username, date, 'Normal', class_section);
-      if (!allowed) {
-        throw new Error('You do not have permission to mark attendance for this previous date. Please request a new permission from the administrator.');
-      }
     }
 
     // -------------------------------------------------
@@ -1256,7 +1343,7 @@ for (let i = 1; i < existingRecords.length; i++) { // skip header row
   const rowAttendanceType = attendanceTypeCol !== undefined ? rowData[attendanceTypeCol] : '';
   
   // Skip Episodic records - they belong to a different attendance type
-  if (rowAttendanceType === 'Episodic') {
+  if (String(rowAttendanceType || '').trim().toLowerCase() === 'episodic') {
     continue;
   }
 
@@ -1270,6 +1357,9 @@ for (let i = 1; i < existingRecords.length; i++) { // skip header row
 
   const rowClassSection = rowData[headerMap.get('Class_Section')];
 
+  // v5.6: only this school's rows can be overwritten (blank REC_ID = any school).
+  if (!rowRecMatches_(recIdCol !== undefined ? rowData[recIdCol] : '', schoolRecId)) continue;
+
   if (rowDateStr === targetDateString && rowClassSection === class_section) {
     existingRecordsByStudentDate.set(stdId, {
       rowIndex: i + 1,
@@ -1280,6 +1370,12 @@ for (let i = 1; i < existingRecords.length; i++) { // skip header row
 }
 Logger.log(`Found ${existingRecordsByStudentDate.size} existing NORMAL records for ${class_section} on ${date}`);
 
+          // v5.6: roster check — only students enrolled in this class on this day
+          // can be marked (same rule as the episodic path). Client-sent names and
+          // classes are never trusted; new rows take them from the roster.
+          const roster = new Map();
+          getStudentList(class_section, date, schoolRecId).forEach(function (s) { roster.set(String(s.Std_ID), s); });
+
           // -------------------------------------------------
           // -------------------------------------------------
           // Prepare bulk updates / new rows
@@ -1289,12 +1385,30 @@ Logger.log(`Found ${existingRecordsByStudentDate.size} existing NORMAL records f
 
           for (const record of attendanceData) {
             const studentKey = String(record.Std_ID);
+            const rosterStudent = roster.get(studentKey);
+            if (!rosterStudent) {
+              Logger.log(`Skipping Std_ID ${studentKey} – not on the roster for ${class_section} on ${date}`);
+              continue;
+            }
+            // v5.6: only Present / Absent / Leave / Other may be stored.
+            const recordStatus = String(record.Status || '').trim().toLowerCase();
+            if (['present', 'absent', 'leave', 'other'].indexOf(recordStatus) === -1) {
+              throw new Error('Invalid attendance status: ' + record.Status + '. Use Present, Absent, Leave or Other.');
+            }
             const existing = existingRecordsByStudentDate.get(studentKey);
 
                         // Hours to store: use sent per-student value if provided, else class hours
             const desiredHours = (record.Hours !== undefined && record.Hours !== '' && record.Hours !== null)
               ? record.Hours
               : hoursCheck.hours;
+            // v5.6: per-student hours must be a number within the day's total.
+            // A value different from the day total is an hours edit, which needs
+            // the canEditStudentHours flag (same gate as the screen).
+            const desiredHoursNum = Number(desiredHours);
+            if (isNaN(desiredHoursNum) || desiredHoursNum <= 0 || desiredHoursNum > dayHours) {
+              throw new Error('Invalid hours for Std_ID ' + studentKey + ': ' + desiredHours + '. Hours must be more than 0 and no more than the day total (' + dayHours + ').');
+            }
+            if (desiredHoursNum !== dayHours) requirePermissionFlag_(username, 'canEditStudentHours');
               const dayItems = parseCategoryBreakdown_(hoursCheck.category);
             const desiredCategory = dayItems
               ? resolveStudentCategory_(dayItems, hoursCheck.category, hoursCheck.hours, desiredHours, record.Category)
@@ -1322,7 +1436,7 @@ Logger.log(`Found ${existingRecordsByStudentDate.size} existing NORMAL records f
                                 // NEW: write Hours & Category
                                 updatedRow[hoursCol] = desiredHours;
                 updatedRow[categoryCol] = desiredCategory;
-                if (recIdCol !== undefined) updatedRow[recIdCol] = recId;
+                if (recIdCol !== undefined) updatedRow[recIdCol] = schoolRecId;
                 
                 // ========================================================
                 // NEW: Add Term information if columns exist
@@ -1348,12 +1462,12 @@ Logger.log(`Found ${existingRecordsByStudentDate.size} existing NORMAL records f
               // ---- CREATE new row ----
               const newRow = new Array(headers.length).fill('');
               newRow[headerMap.get('Attendance_ID')]   = generateUUID();
-              newRow[headerMap.get('Date')]           = record.Date;
+              newRow[headerMap.get('Date')]           = date;
               newRow[headerMap.get('Std_ID')]         = String(record.Std_ID);
-              newRow[headerMap.get('Barcode_ID')]     = record.Barcode_ID || '';
-              newRow[headerMap.get('Student_Name')]   = record.Student_Name;
-              newRow[headerMap.get('Student_Class')]  = record.Student_Class;
-              newRow[headerMap.get('Student_Section')]= record.Student_Section;
+              newRow[headerMap.get('Barcode_ID')]     = rosterStudent.Barcode_ID || '';
+              newRow[headerMap.get('Student_Name')]   = rosterStudent.Student_Name;
+              newRow[headerMap.get('Student_Class')]  = rosterStudent.Student_Class;
+              newRow[headerMap.get('Student_Section')]= rosterStudent.Student_Section;
               newRow[headerMap.get('Status')]         = record.Status;
               newRow[headerMap.get('Timestamp')]      = new Date().toLocaleString();
               newRow[headerMap.get('Teacher_ID')]     = username;
@@ -1368,7 +1482,7 @@ if (attendanceTypeCol !== undefined) {
               // NEW: write Hours & Category
                             newRow[hoursCol] = desiredHours;
               newRow[categoryCol] = desiredCategory;
-              if (recIdCol !== undefined) newRow[recIdCol] = recId;
+              if (recIdCol !== undefined) newRow[recIdCol] = schoolRecId;
 
               // ========================================================
               // NEW: Add Term information if columns exist
@@ -1448,10 +1562,40 @@ if (attendanceTypeCol !== undefined) {
 // =============== EPISODIC ATTENDANCE FUNCTIONS ===============
 // ADD ALL OF THIS CODE AT THE END OF YOUR code.gs FILE
 
+// ---------- Applicable_Classes (v5.4) ----------
+// Parse an Applicable_Classes cell into an array of class tokens. Accepts '{VIII,IX,X,XI}',
+// a bare 'VII', '' (blank = all classes) or an array. Same brace rules as the MIS portal. Never throws.
+function parseApplicableClasses_(cell) {
+  if (Array.isArray(cell)) return cell.map(function (t) { return String(t == null ? '' : t).trim(); }).filter(Boolean);
+  const str = String(cell == null ? '' : cell).trim();
+  if (!str) return [];
+  let s = str;
+  if (s.charAt(0) === '{' && s.charAt(s.length - 1) === '}') s = s.slice(1, -1);
+  return s.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
+}
+
+// Does this category apply to the given class-section(s)? Blank/missing Applicable_Classes = all
+// classes. classSection may be a single 'VII-A', an array of them (category must apply to EVERY
+// one — the batch/event rule), or null/[] (no class in scope → no filter, fail-open).
+function categoryAppliesToClass_(cell, classSection) {
+  if (classSection == null) return true;
+  const wanted = (Array.isArray(classSection) ? classSection : [classSection])
+    .map(function (s) { return String(s || '').trim(); }).filter(Boolean);
+  if (wanted.length === 0) return true;
+  const allowed = parseApplicableClasses_(cell);
+  if (allowed.length === 0) return true;
+  const allowedLower = allowed.map(function (t) { return String(t).trim().toLowerCase(); });
+  return wanted.every(function (cs) {
+    const base = String(cs).split('-')[0].trim().toLowerCase();
+    return allowedLower.indexOf(base) !== -1;
+  });
+}
+
 /**
  * Get categories filtered by attendance type from Hour_Categories sheet
+ * (v5.4: optional classSection filters by Applicable_Classes; blank = all classes)
  */
-function getCategoriesByType(type) {
+function getCategoriesByType(type, classSection) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Hour_Categories');
   if (!sheet) throw new Error('Hour_Categories sheet not found');
   
@@ -1461,6 +1605,7 @@ function getCategoriesByType(type) {
   const nameCol = headers.indexOf('Category_Name');
   const activeCol = headers.indexOf('Is_Active');
   const typeCol = headers.indexOf('Attendance_Type');
+  const applicableCol = headers.indexOf('Applicable_Classes');
   
   const categories = [];
   
@@ -1474,6 +1619,8 @@ function getCategoriesByType(type) {
     }
     
     if (!type || allowedType === 'both' || allowedType === type) {
+      // v5.4: only categories bound to this class (blank Applicable_Classes = all classes).
+      if (!categoryAppliesToClass_(applicableCol === -1 ? '' : data[i][applicableCol], classSection)) continue;
       categories.push(String(data[i][nameCol]));
     }
   }
@@ -1482,10 +1629,10 @@ function getCategoriesByType(type) {
 }
 
 /**
- * Get episodic categories
+ * Get episodic categories (v5.4: optional classSection, passed through)
  */
-function getEpisodicCategories() {
-  return getCategoriesByType('episodic');
+function getEpisodicCategories(classSection) {
+  return getCategoriesByType('episodic', classSection);
 }
 
 /**
@@ -1501,12 +1648,18 @@ function getHoursByType(type) {
   const hoursCol = headers.indexOf('Hours');
   const typeCol = headers.indexOf('Attendance_Type');
   const maxCustomCol = headers.indexOf('Max_Custom');
+  const activeCol = headers.indexOf('Is_Active');
   
   const presetHours = [];
   let allowCustom = false;
   let maxCustom = 8;
   
   for (let i = 1; i < data.length; i++) {
+    // v5.3: skip rows deactivated in the MIS portal (blank/missing Is_Active = active).
+    if (activeCol !== -1) {
+      const av = data[i][activeCol];
+      if (av === false || String(av).trim().toLowerCase() === 'false') continue;
+    }
     const hoursValue = String(data[i][hoursCol]).toLowerCase();
     let allowedType = 'both';
     
@@ -1570,18 +1723,31 @@ function markEpisodicAttendance(studentStatuses, classSection, date, username, e
       throw new Error(`Invalid date format: ${date}. Please use YYYY-MM-DD (e.g., 2025-10-03).`);
     }
 
+    // v5.6: caller verification (unknown / non-teacher / Inactive refused). The
+    // school comes from the caller's Users row; the sent recId only disambiguates a username that exists at two schools.
+    const caller = requireTeacherCaller_(username, recId);
+    const schoolRecId = caller.recId || String(recId || '').trim();
+    requireAssignedClass_(username, classSection, schoolRecId);
+    if (!isRealYMD_(date)) throw new Error('Invalid date: ' + date + '. Use a real yyyy-MM-dd date.');
+
     // ========================================================
     // 1b. PREVIOUS-DATE PERMISSION CHECK (server-side)
     // Pichhli date ke liye live Previous_Date_Permissions row
     // (user + date + class + Episodic type) zaroori hai.
     // ========================================================
     const todayStr_ = Utilities.formatDate(new Date(), 'Asia/Karachi', 'yyyy-MM-dd');
+    if (date > todayStr_) throw new Error('Future dates cannot be marked.');
     if (date < todayStr_) {
-      const allowed = checkPreviousDatePermission(username, date, 'Episodic', classSection);
+      const allowed = checkPreviousDatePermission(username, date, 'Episodic', classSection, schoolRecId);
       if (!allowed) {
         throw new Error('You do not have permission to mark episodic attendance for this previous date. Please request a new permission from the administrator.');
       }
     }
+    
+    // v5.6: the event must exist for this date + class (marking under a
+    // never-created event is refused).
+    const eventRow = findEpisodicEvent_(eventName, date, classSection, schoolRecId);
+    if (!eventRow) throw new Error('Event "' + eventName + '" does not exist for ' + classSection + ' on ' + date + '. Create the event first.');
     
     // ========================================================
     // 2. TERM CHECK REMOVED (per request) - term info still fetched (non-blocking) for record-keeping only
@@ -1601,10 +1767,22 @@ function markEpisodicAttendance(studentStatuses, classSection, date, username, e
     // 4. HOURS VALIDATION - Check that hours & category are defined for the day
     // CRITICAL: Episodic attendance also needs hours validation
     // ========================================================
-const hoursCheck = checkDailyHours(date, classSection, 'episodic');
+const hoursCheck = checkDailyHours(date, classSection, 'episodic', schoolRecId);
 
 let finalHours = hours;
 let finalCategory = category;
+
+if (!hoursCheck.exists && (!category || !hours)) {
+  throw new Error('Hours and category must be set before marking episodic attendance.');
+}
+if (!hoursCheck.exists) {
+  // v5.6: client-sent hours/category must be valid configured values.
+  validateHoursValue_(hours, 'episodic');
+  validateCategoryForClass_(category, 'episodic', classSection);
+}
+// v5.6: the event's hours must be a usable number.
+const eventHoursNum = Number(hoursCheck.exists ? hoursCheck.hours : finalHours);
+if (isNaN(eventHoursNum) || eventHoursNum <= 0) throw new Error('The hours for this event are not valid. Fix the event or the hours setup first.');
 
 if (hoursCheck.exists) {
   finalHours = hoursCheck.hours;
@@ -1664,7 +1842,7 @@ if (hoursCheck.exists) {
     // ========================================================
     // 7. Get all students for this class
     // ========================================================
-    const allStudents = getStudentList(classSection, date);
+    const allStudents = getStudentList(classSection, date, schoolRecId);
     const studentMap = new Map();
     allStudents.forEach(s => {
       studentMap.set(String(s.Std_ID), s);
@@ -1691,8 +1869,9 @@ if (hoursCheck.exists) {
       
       if (rowClass === classSection &&
           rowDate === targetDate &&
-          rowType === 'Episodic' &&
-          rowEvent === eventName) {
+          String(rowType || '').trim().toLowerCase() === 'episodic' &&
+          rowEvent === eventName &&
+          rowRecMatches_(recIdCol !== undefined ? row[recIdCol] : '', schoolRecId)) {
         const studentId = String(row[stdIdCol]);
         existingRecords.set(studentId, {
           rowIndex: i + 1,
@@ -1720,10 +1899,23 @@ if (hoursCheck.exists) {
         Logger.log(`Warning: Student ${studentId} not found in class ${classSection}`);
         continue;
       }
+      // v5.6: only Present / Not Applicable may be stored for episodic attendance.
+      const itemStatus = String(newStatus || '').trim().toLowerCase();
+      if (itemStatus !== 'present' && itemStatus !== 'not applicable') {
+        throw new Error('Invalid episodic status for Std_ID ' + studentId + ': ' + newStatus + '. Use Present or Not Applicable.');
+      }
       
             const existing = existingRecords.get(studentId);
       const now = new Date();
       const desiredHours = (newStatus === 'Present' && item.hours !== undefined && item.hours !== '' && item.hours !== null) ? item.hours : finalHours;
+      // v5.6: per-student hours must be a number within the event's hours.
+      // A value different from the event total is an hours edit, which needs
+      // the canEditStudentHours flag (same gate as the screen).
+      const desiredHoursNum = Number(desiredHours);
+      if (isNaN(desiredHoursNum) || desiredHoursNum <= 0 || desiredHoursNum > eventHoursNum) {
+        throw new Error('Invalid hours for Std_ID ' + studentId + ': ' + desiredHours + '. Hours must be more than 0 and no more than the event total (' + eventHoursNum + ').');
+      }
+      if (newStatus === 'Present' && desiredHoursNum !== eventHoursNum) requirePermissionFlag_(username, 'canEditStudentHours');
       
       if (existing) {
         // Update existing record if status OR hours changed
@@ -1738,7 +1930,7 @@ if (hoursCheck.exists) {
           // Hours: per-student value when Present (if provided), else event's default hours
  updatedRow[hoursCol] = desiredHours;
 updatedRow[categoryCol] = finalCategory;
-          if (recIdCol !== undefined) updatedRow[recIdCol] = recId;
+          if (recIdCol !== undefined) updatedRow[recIdCol] = schoolRecId;
 
           // Ensure term info is correct
           if (termIdCol !== undefined && termNameCol !== undefined && term) {
@@ -1776,7 +1968,7 @@ updatedRow[categoryCol] = finalCategory;
                 // Hours: per-student value when Present (if provided), else event's default hours
         newRow[hoursCol] = desiredHours;
 newRow[categoryCol] = finalCategory;
-        if (recIdCol !== undefined) newRow[recIdCol] = recId;
+        if (recIdCol !== undefined) newRow[recIdCol] = schoolRecId;
         if (typeCol !== undefined) newRow[typeCol] = 'Episodic';
         if (eventCol !== undefined) newRow[eventCol] = eventName;
         if (termIdCol !== undefined && termNameCol !== undefined && term) {
@@ -1856,7 +2048,7 @@ newRow[categoryCol] = finalCategory;
 // ========================================================
 SpreadsheetApp.flush();
 
-const episodicHoursExist = checkDailyHours(date, classSection, 'episodic');
+const episodicHoursExist = checkDailyHours(date, classSection, 'episodic', schoolRecId);
 
 if (!episodicHoursExist.exists) {
   // No episodic hours for this date/class - safe to save
@@ -1867,7 +2059,7 @@ if (!episodicHoursExist.exists) {
       category: finalCategory,
       hours: finalHours,
       teacherId: username
-    }], 'episodic', recId);
+    }], 'episodic', recId, username);
 Logger.log(`Added episodic hours to Daily_Hours_Setup: ${finalHours} hours (${finalCategory})`);
 
   } catch (e) {
@@ -1899,21 +2091,15 @@ Logger.log(`Added episodic hours to Daily_Hours_Setup: ${finalHours} hours (${fi
   }
 }
 
-// This function is still here but the appendRow logic is now inside markAttendance.
-// It's not directly used in the provided markAttendance anymore.
-function appendRow(...rows) { 
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Student_Attendance');
-  if (!sheet) throw new Error('Student_Attendance sheet not found');
-  sheet.appendRow(...rows); 
-}
-
-function getActiveCategories(type = 'normal') {
+// v5.6: appendRow deleted — it was an unguarded direct write to Student_Attendance with no callers.
+function getActiveCategories(type = 'normal', classSection) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Hour_Categories');
   if (!sheet) throw new Error('Hour_Categories sheet not found');
   
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const typeCol = headers.indexOf('Attendance_Type');
+  const applicableCol = headers.indexOf('Applicable_Classes');
   
   const categories = [];
   for (let i = 1; i < data.length; i++) {
@@ -1924,6 +2110,8 @@ function getActiveCategories(type = 'normal') {
       }
       // Include if: no type specified OR type is 'both' OR matches requested type
       if (!type || allowedType === 'both' || allowedType === type) {
+        // v5.4: only categories bound to this class (blank Applicable_Classes = all classes).
+        if (!categoryAppliesToClass_(applicableCol === -1 ? '' : data[i][applicableCol], classSection)) continue;
         categories.push(data[i][1]);
       }
     }
@@ -1938,12 +2126,18 @@ function getHoursOptions(type = 'normal') {
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const typeCol = headers.indexOf('Attendance_Type');
+  const activeCol = headers.indexOf('Is_Active');
   
   const presetHours = [];
   let allowCustom = false;
   let maxCustom = 8;
   
   for (let i = 1; i < data.length; i++) {
+    // v5.3: skip rows deactivated in the MIS portal (blank/missing Is_Active = active).
+    if (activeCol !== -1) {
+      const av = data[i][activeCol];
+      if (av === false || String(av).trim().toLowerCase() === 'false') continue;
+    }
     const hoursValue = String(data[i][0]).toLowerCase();
     let allowedType = 'both';
     
@@ -1968,22 +2162,27 @@ function getHoursOptions(type = 'normal') {
 }
 
 // NEW: Check if hours/category are set for a date and class_section
-function checkDailyHours(date, classSection, attendanceType = null) {
+// NEW: Check if hours/category are set for a date and class_section
+function checkDailyHours(date, classSection, attendanceType = null, schoolRecId) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Daily_Hours_Setup');
   if (!sheet) throw new Error('Daily_Hours_Setup sheet not found');
   
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const typeCol = headers.indexOf('Attendance_Type');
+  const recCol = headers.indexOf('REC_ID');
   const targetDate = new Date(date).toLocaleDateString('en-CA');
   
   for (let i = 1; i < data.length; i++) {
     const rowDate = new Date(data[i][0]).toLocaleDateString('en-CA');
     if (rowDate === targetDate && data[i][1] === classSection) {
+      // v5.6: only this school's setup rows (blank REC_ID = any school).
+      if (!rowRecMatches_(recCol !== -1 ? data[i][recCol] : '', schoolRecId)) continue;
       const rowType = (typeCol !== -1 && data[i][typeCol]) ? String(data[i][typeCol]) : 'normal';
       
       // If type specified (like 'normal' or 'episodic'), only match that type
-      if (attendanceType && rowType === attendanceType) {
+      // (compared case-insensitively, so 'Normal' and 'normal' are the same row).
+      if (attendanceType && rowType.toLowerCase() === String(attendanceType).toLowerCase()) {
         return { exists: true, category: data[i][2], hours: data[i][3] };
       }
       // If no type specified, return any (for backward compatibility)
@@ -1994,8 +2193,16 @@ function checkDailyHours(date, classSection, attendanceType = null) {
   }
   return { exists: false };
 }
-
-function setDailyHours(entries, attendanceType = 'normal', recId = '') {
+function setDailyHours(entries, attendanceType = 'normal', recId = '', username) {
+  // v5.6: caller verification, assignment, school, canSetupHours flag and
+  // per-entry validation. (Future dates are allowed here — the batch and
+  // hours-setup screens let teachers set hours ahead; no past-date
+  // permission is demanded for setup rows.)
+  const caller = requireTeacherCaller_(username, recId);
+  const schoolRecId = caller.recId || String(recId || '').trim();
+  requirePermissionFlag_(username, 'canSetupHours');
+  const typeNorm = String(attendanceType || 'normal').trim().toLowerCase();
+  if (typeNorm !== 'normal' && typeNorm !== 'episodic') throw new Error('Invalid attendance type: ' + attendanceType + '. Use normal or episodic.');
   const startTime = Date.now();
   Logger.log(`setDailyHours started with ${entries.length} entries, type: ${attendanceType}`);
   
@@ -2027,6 +2234,11 @@ function setDailyHours(entries, attendanceType = 'normal', recId = '') {
     const newRows = [];
     
     entries.forEach(entry => {
+      // v5.6: every entry is validated — real date, assigned class, valid hours/category.
+      if (!isRealYMD_(entry.date)) throw new Error('Invalid date: ' + entry.date + '. Use a real yyyy-MM-dd date.');
+      requireAssignedClass_(username, entry.classSection, schoolRecId);
+      validateHoursValue_(entry.hours, typeNorm);
+      validateCategoryForClass_(entry.category, typeNorm, entry.classSection);
             const bd_ = parseCategoryBreakdown_(entry.category);
       if (bd_ && Math.abs(sumBreakdown_(bd_) - Number(entry.hours)) > 0.001) {
         throw new Error('Category hours breakup is not equal to the total Hours defined.');
@@ -2037,22 +2249,25 @@ function setDailyHours(entries, attendanceType = 'normal', recId = '') {
       for (let i = 1; i < existingData.length; i++) {
         const rowDate = new Date(existingData[i][0]).toLocaleDateString('en-CA');
         if (rowDate === targetDate && existingData[i][1] === entry.classSection) {
+          // v5.6: only this school's rows can be overwritten (blank REC_ID = any school).
+          if (!rowRecMatches_(recIdColIndex !== -1 ? existingData[i][recIdColIndex] : '', schoolRecId)) continue;
           
           // ✅ CRITICAL FIX: Get the existing Attendance_Type
           const existingType = existingData[i][typeColIndex] || 'normal';
           
           // ✅ ONLY update if the existing row has the SAME attendance type
-          if (existingType === attendanceType) {
+          // (compared case-insensitively, so 'Normal' and 'normal' are the same row).
+          if (String(existingType).toLowerCase() === typeNorm) {
             // Update existing row of same type
             const values = new Array(Math.max(7, existingData[i].length, recIdColIndex + 1)).fill('');
             values[0] = entry.date;
             values[1] = entry.classSection;
             values[2] = entry.category;
             values[3] = entry.hours;
-            values[4] = entry.teacherId;
+            values[4] = username;
             values[5] = now;
             values[typeColIndex] = attendanceType;
-            if (recIdColIndex !== -1) values[recIdColIndex] = recId;
+            if (recIdColIndex !== -1) values[recIdColIndex] = schoolRecId;
             
             updates.push({
               rowIndex: i + 1,
@@ -2073,10 +2288,10 @@ function setDailyHours(entries, attendanceType = 'normal', recId = '') {
         newRow[1] = entry.classSection;
         newRow[2] = entry.category;
         newRow[3] = entry.hours;
-        newRow[4] = entry.teacherId;
+        newRow[4] = username;
         newRow[5] = now;
         newRow[typeColIndex] = attendanceType;
-        if (recIdColIndex !== -1) newRow[recIdColIndex] = recId;
+        if (recIdColIndex !== -1) newRow[recIdColIndex] = schoolRecId;
         newRows.push(newRow);
       }
     });
@@ -2180,7 +2395,7 @@ function getHoursConflicts(date, username) {
 }
 
 // FIXED: Get class sections with hours status - properly filtered by user
-function getClassSectionsWithHoursStatus(date, username) {
+function getClassSectionsWithHoursStatus(date, username, schoolRecId) {
   try {
     const sheet = getHoursSheet();
     const data = sheet.getDataRange().getValues();
@@ -2190,6 +2405,7 @@ function getClassSectionsWithHoursStatus(date, username) {
     const classSectionCol = headers.indexOf('Class_Section');
     const hoursCol = headers.indexOf('Hours');
     const categoryCol = headers.indexOf('Category');
+    const recCol = headers.indexOf('REC_ID');
     
     const existingHours = {};
     const targetDate = new Date(date).toLocaleDateString('en-CA');
@@ -2198,6 +2414,9 @@ function getClassSectionsWithHoursStatus(date, username) {
       data.slice(1)
         .filter(row => {
           if (!row[dateCol]) return false;
+          // v5.8 (O5): only this school's setup rows (blank REC_ID = any
+          // school; no school passed = old behaviour, every row counts).
+          if (!rowRecMatches_(recCol !== -1 ? row[recCol] : '', schoolRecId)) return false;
           const rowDate = new Date(row[dateCol]).toLocaleDateString('en-CA');
           return rowDate === targetDate;
         })
@@ -2229,7 +2448,8 @@ function getClassSectionsWithHoursStatus(date, username) {
         }
         
         if (userType === "teacher") {
-          userClassSections = getAssignedClassSections(username);
+          // v5.8 (O5): the logged-in school scopes the assignment list.
+          userClassSections = getAssignedClassSections(username, schoolRecId);
         } else {
           userClassSections = getClassSections();
         }
@@ -2249,67 +2469,8 @@ function getClassSectionsWithHoursStatus(date, username) {
   }
 }
 
-// NEW: Handle batch hours form submission
-function handleBatchHoursSubmission(formData) {
-  const lock = LockService.getScriptLock();
-  
-  try {
-    if (!lock.tryLock(10000)) {
-      throw new Error('Unable to acquire lock. Please try again.');
-    }
-    
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Daily_Hours_Setup');
-    if (!sheet) throw new Error('Daily_Hours_Setup sheet not found');
-    
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0];
-    const now = new Date().toLocaleString();
-    
-    let successCount = 0;
-    
-    formData.entries.forEach(entry => {
-      const targetDate = new Date(entry.date).toLocaleDateString('en-CA');
-      let found = false;
-      
-      // Check for existing entry
-      for (let i = 1; i < data.length; i++) {
-        const rowDate = new Date(data[i][0]).toLocaleDateString('en-CA');
-        if (rowDate === targetDate && data[i][1] === entry.classSection) {
-          // Update existing
-          sheet.getRange(i + 1, 3).setValue(entry.category); // Category
-          sheet.getRange(i + 1, 4).setValue(entry.hours);   // Hours
-          sheet.getRange(i + 1, 5).setValue(entry.teacherId); // Teacher ID
-          sheet.getRange(i + 1, 6).setValue(now);           // Timestamp
-          found = true;
-          successCount++;
-          break;
-        }
-      }
-      
-      if (!found) {
-        // Append new
-        sheet.appendRow([
-          entry.date,
-          entry.classSection,
-          entry.category,
-          entry.hours,
-          entry.teacherId,
-          now
-        ]);
-        successCount++;
-      }
-    });
-    
-    return { success: true, count: successCount };
-    
-  } catch (error) {
-    console.error('Batch hours submission error:', error);
-    throw error;
-  } finally {
-    lock.releaseLock();
-  }
-}
-
+// v5.6: handleBatchHoursSubmission was deleted — it had no caller (the batch
+// form calls setDailyHours) and no validation at all.
 // Helper function to get the hours sheet
 function getHoursSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -2384,6 +2545,21 @@ function updateBatchHours(date, classSection, category, hours, username, recId =
   const lock = LockService.getScriptLock();
   
   try {
+    // v5.6: caller verification, assignment, school, date rules, permission flag,
+    // and hours/category validation. (Throws here become {success:false} below.)
+    const caller = requireTeacherCaller_(username, recId);
+    const schoolRecId = caller.recId || String(recId || '').trim();
+    requireAssignedClass_(username, classSection, schoolRecId);
+    if (!isRealYMD_(date)) throw new Error('Invalid date: ' + date + '. Use a real yyyy-MM-dd date.');
+    const todayStr_ = Utilities.formatDate(new Date(), 'Asia/Karachi', 'yyyy-MM-dd');
+    if (date > todayStr_) throw new Error('Future dates cannot be updated.');
+    if (date < todayStr_) {
+      const allowed = checkPreviousDatePermission(username, date, 'Normal', classSection, schoolRecId);
+      if (!allowed) throw new Error('You do not have permission to change hours for this previous date. Please request a new permission from the administrator.');
+    }
+    requirePermissionFlag_(username, 'canUpdateBatchHours');
+    validateHoursValue_(hours, 'normal');
+    validateCategoryForClass_(category, 'normal', classSection);
     const bd_ = parseCategoryBreakdown_(category);
     if (bd_ && Math.abs(sumBreakdown_(bd_) - Number(hours)) > 0.001) {
       return { success: false, message: 'Category hours breakup is not equal to the total Hours defined.' };
@@ -2398,6 +2574,7 @@ function updateBatchHours(date, classSection, category, hours, username, recId =
     
     const hoursData = hoursSheet.getDataRange().getValues();
     const hoursTypeCol = hoursData[0].indexOf('Attendance_Type');
+    const hoursRecCol = hoursData[0].indexOf('REC_ID');
     const targetDate = new Date(date).toLocaleDateString('en-CA');
     let updatedHoursSetup = false;
     const now = new Date().toLocaleString();
@@ -2408,7 +2585,8 @@ function updateBatchHours(date, classSection, category, hours, username, recId =
     for (let i = 1; i < hoursData.length; i++) {
       const rowDate = new Date(hoursData[i][0]).toLocaleDateString('en-CA');
       if (rowDate === targetDate && hoursData[i][1] === classSection &&
-    (hoursTypeCol === -1 || isNormalType_(hoursData[i][hoursTypeCol]))) {
+    (hoursTypeCol === -1 || isNormalType_(hoursData[i][hoursTypeCol])) &&
+    rowRecMatches_(hoursRecCol !== -1 ? hoursData[i][hoursRecCol] : '', schoolRecId)) {
         oldCategory = hoursData[i][2];
         oldHours = hoursData[i][3];
         hoursSheet.getRange(i + 1, 3).setValue(category); // Category
@@ -2422,6 +2600,10 @@ function updateBatchHours(date, classSection, category, hours, username, recId =
     
     if (!updatedHoursSetup) {
       hoursSheet.appendRow([date, classSection, category, hours, username, now]);
+      // v5.6: stamp the new setup row with its type + school (header-indexed).
+      const newSetupRow = hoursSheet.getLastRow();
+      if (hoursTypeCol !== -1) hoursSheet.getRange(newSetupRow, hoursTypeCol + 1).setValue('Normal');
+      if (hoursRecCol !== -1) hoursSheet.getRange(newSetupRow, hoursRecCol + 1).setValue(schoolRecId);
     }
     
     // Now update existing attendance records
@@ -2436,6 +2618,7 @@ function updateBatchHours(date, classSection, category, hours, username, recId =
     const hoursCol = headers.indexOf('Hours');
     const categoryCol = headers.indexOf('Category');
     const attTypeCol = headers.indexOf('Attendance_Type');
+    const attRecCol = headers.indexOf('REC_ID');
 
     if (dateCol === -1 || classSectionCol === -1 || hoursCol === -1 || categoryCol === -1) {
       return { success: false, message: 'Required columns not found in attendance sheet.' };
@@ -2446,7 +2629,8 @@ function updateBatchHours(date, classSection, category, hours, username, recId =
     for (let i = 1; i < attendanceData.length; i++) {
       const rowDate = new Date(attendanceData[i][dateCol]).toLocaleDateString('en-CA');
       if (rowDate === targetDate && attendanceData[i][classSectionCol] === classSection &&
-    (attTypeCol === -1 || isNormalType_(attendanceData[i][attTypeCol]))) {
+    (attTypeCol === -1 || isNormalType_(attendanceData[i][attTypeCol])) &&
+    rowRecMatches_(attRecCol !== -1 ? attendanceData[i][attRecCol] : '', schoolRecId)) {
         attendanceSheet.getRange(i + 1, hoursCol + 1).setValue(hours);
         attendanceSheet.getRange(i + 1, categoryCol + 1).setValue(category);
         updatedCount++;
@@ -2457,7 +2641,7 @@ function updateBatchHours(date, classSection, category, hours, username, recId =
     
     // Log this batch hours update — sirf tab jab kam-az-kam 1 record actually update hua ho
     if (updatedCount > 0) {
-      getOrCreateBatchHoursLogSheet_().appendRow([date, classSection, oldHours, oldCategory, hours, category, username, recId, new Date().toLocaleString()]);
+      getOrCreateBatchHoursLogSheet_().appendRow([date, classSection, oldHours, oldCategory, hours, category, username, schoolRecId, new Date().toLocaleString()]);
     }
     
     return {
@@ -2562,6 +2746,296 @@ function getUserPermissions(username) {
   }
 }
 
+
+// =============== v5.6: SERVER-SIDE CALLER VALIDATION ===============
+// Every write below verifies its caller through these helpers. The caller's
+// school always comes from the Users row (never from a client-sent recId).
+// A teacher with no Teacher_Assignments rows on file has no assignment
+// constraint (fail-open, same as the class pickers' fallback); a teacher WITH
+// assignments may only write to their own classes. A missing User_Permissions
+// row is fail-open for the flags below; a present row with the flag off refuses.
+
+function getCallerUser_(username, recId) {
+  // The caller's Users row. One row with this username: that row. Several
+  // rows (same teacher at two schools): the one whose REC_ID matches the
+  // school the caller logged into (recId); a row with a blank REC_ID counts
+  // as a match for any school. No row matches -> null (ambiguous caller).
+  // Returns { username, userType, status, recId } or null.
+  if (!username || !String(username).trim()) return null;
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Users');
+  if (!sheet) throw new Error('Users sheet not found');
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return null;
+  const h = data[0];
+  const uCol = h.indexOf('Username');
+  const tCol = h.indexOf('UserType');
+  const sCol = h.indexOf('Status');
+  const rCol = h.indexOf('REC_ID');
+  const rows = [];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][uCol] || '').trim() === String(username).trim()) {
+      rows.push({
+        username: String(data[i][uCol] || '').trim(),
+        userType: tCol !== -1 ? String(data[i][tCol] || '').trim() : '',
+        status: sCol !== -1 ? String(data[i][sCol] || '').trim() : 'Active',
+        recId: rCol !== -1 ? String(data[i][rCol] || '').trim() : ''
+      });
+    }
+  }
+  if (rows.length === 0) return null;
+  if (rows.length === 1) return rows[0];
+  const wantRec = String(recId || '').trim();
+  if (wantRec) {
+    for (let k = 0; k < rows.length; k++) {
+      if (rows[k].recId === wantRec) return rows[k];
+    }
+    for (let k = 0; k < rows.length; k++) {
+      if (!rows[k].recId) return rows[k];
+    }
+    return null;
+  }
+  return rows[0];
+}
+
+function requireTeacherCaller_(username, recId) {
+  // Refuses unknown usernames, accounts that are not teacher/admin, and
+  // Inactive accounts. Returns { username, userType, status, recId }.
+  const caller = getCallerUser_(username, recId);
+  if (!caller) throw new Error('Unknown user. Please log in again.');
+  const type = caller.userType.toLowerCase();
+  if (type !== 'teacher' && type !== 'admin') throw new Error('This account is not allowed to change attendance data.');
+  if (caller.status.toLowerCase() !== 'active') throw new Error('Your account is inactive. Please contact the administrator.');
+  return caller;
+}
+
+function requireAdminCaller_(username, recId) {
+  // v5.8: an Active admin OR superadmin may proceed (used by updateUserStatus).
+  const caller = getCallerUser_(username, recId);
+  if (!caller) throw new Error('Unknown user. Please log in again.');
+  const type = caller.userType.toLowerCase();
+  if (type !== 'admin' && type !== 'superadmin') throw new Error('Only an administrator can do this.');
+  if (caller.status.toLowerCase() !== 'active') throw new Error('Your account is inactive. Please contact the administrator.');
+  return caller;
+}
+
+// v5.8 (F5, corrected 19 Nov 2026): the schools an admin caller may change
+// users at, derived from ALL of the caller's Users rows — not just the first
+// row getCallerUser_ picks. Only Active admin/superadmin rows count, so an
+// Inactive admin row at a second school grants nothing there. isSuperadmin
+// is reported but grants NO cross-school access: a superadmin may act only
+// at schools where they hold a row, like any admin. A blank REC_ID grants
+// no school (fail-closed): a row with no school on file does not silently
+// become every school. Returns { isSuperadmin: boolean, recIds: string[] }.
+function getAdminCallerScope_(callerUsername) {
+  const scope = { isSuperadmin: false, recIds: [] };
+  if (!callerUsername || !String(callerUsername).trim()) return scope;
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Users');
+  if (!sheet) throw new Error('Users sheet not found');
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return scope;
+  const h = data[0];
+  const uCol = h.indexOf('Username');
+  const tCol = h.indexOf('UserType');
+  const sCol = h.indexOf('Status');
+  const rCol = h.indexOf('REC_ID');
+  const want = String(callerUsername).trim();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][uCol] || '').trim() !== want) continue;
+    const type = tCol !== -1 ? String(data[i][tCol] || '').trim().toLowerCase() : '';
+    if (type !== 'admin' && type !== 'superadmin') continue;
+    const status = sCol !== -1 ? String(data[i][sCol] || '').trim().toLowerCase() : 'active';
+    if (status !== 'active') continue;
+    if (type === 'superadmin') scope.isSuperadmin = true;
+    const rec = rCol !== -1 ? String(data[i][rCol] || '').trim() : '';
+    if (rec && scope.recIds.indexOf(rec) === -1) scope.recIds.push(rec);
+  }
+  return scope;
+}
+
+function requireAssignedClass_(username, classSection, schoolRecId) {
+  // The class must be in the teacher's assigned list. No Teacher_Assignments
+  // rows on file for this teacher/school = no constraint (fail-open).
+  const assigned = getAssignedClassSections(username, schoolRecId);
+  if (!assigned || assigned.length === 0) return;
+  if (!isClassSectionAssigned_(assigned, classSection)) {
+    throw new Error('You are not assigned to class ' + classSection + '.');
+  }
+}
+
+function requireAssignedClasses_(username, classSections, schoolRecId) {
+  const list = classSections || [];
+  for (let i = 0; i < list.length; i++) requireAssignedClass_(username, list[i], schoolRecId);
+}
+
+function hasUserPermissionsRow_(username) {
+  // True when the User_Permissions sheet has a row for this username.
+  // (getUserPermissions returns all-false both for a missing row and for a
+  // row with every flag off, so the existence check has to be separate.)
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('User_Permissions');
+    if (!sheet) return false;
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === username) return true;
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
+function requirePermissionFlag_(username, flagName) {
+  // Missing permissions row = fail-open (teachers with no flags row keep
+  // today's behaviour); a present row with the flag off = refuse.
+  if (!hasUserPermissionsRow_(username)) return;
+  const perms = getUserPermissions(username);
+  if (!perms[flagName]) throw new Error('User does not have permission for this action.');
+}
+
+function isRealYMD_(s) {
+  // Strict real-date check: shape yyyy-MM-dd AND a real calendar date
+  // (2026-02-31 is refused, not just badly shaped values).
+  const v = String(s || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const parts = v.split('-').map(Number);
+  const d = new Date(parts[0], parts[1] - 1, parts[2]);
+  return d.getFullYear() === parts[0] && d.getMonth() === parts[1] - 1 && d.getDate() === parts[2];
+}
+
+function rowRecMatches_(rowRec, schoolRecId) {
+  // Grandfathering: a stored row with a blank/missing REC_ID matches any
+  // school, so older rows keep working instead of duplicating or vanishing.
+  const r = String(rowRec == null ? '' : rowRec).trim();
+  if (!r) return true;
+  const want = String(schoolRecId || '').trim();
+  if (!want) return true;
+  return r === want;
+}
+
+function validateHoursValue_(hours, type) {
+  // Hours must be a number > 0 and one of the configured preset hours for
+  // this type, or a custom value up to Max_Custom when custom is allowed.
+  // A type with no configured hours at all accepts any positive number.
+  const n = Number(hours);
+  if (hours === '' || hours === null || hours === undefined || isNaN(n) || n <= 0) {
+    throw new Error('Hours must be a number greater than 0.');
+  }
+  const t = String(type || 'normal').trim().toLowerCase();
+  let cfg = null;
+  try { cfg = getHoursByType(t); } catch (e) { cfg = null; }
+  if (!cfg) return n;
+  const presets = (cfg.presetHours || []).map(function (h) { return Number(h); }).filter(function (h) { return !isNaN(h); });
+  if (presets.indexOf(n) !== -1) return n;
+  if (cfg.allowCustom && n <= Number(cfg.maxCustom || 0)) return n;
+  if (presets.length === 0 && !cfg.allowCustom) return n;
+  throw new Error('Hours ' + hours + ' is not an allowed value for ' + t + ' hours. Use one of the configured hours' + (cfg.allowCustom ? ' or a custom value up to ' + cfg.maxCustom + '.' : '.'));
+}
+
+function validateCategoryForClass_(category, type, classSections) {
+  // Every part of a (possibly multi-part) category must be an active category
+  // of this type that applies to every listed class.
+  const t = String(type || 'normal').trim().toLowerCase();
+  const allowed = getCategoriesByType(t, classSections);
+  const items = parseCategoryBreakdown_(category);
+  const names = items ? items.map(function (i) { return i.name; }) : [String(category || '').trim()];
+  for (let i = 0; i < names.length; i++) {
+    if (!names[i] || allowed.indexOf(names[i]) === -1) {
+      throw new Error('Category "' + names[i] + '" is not an active ' + t + ' category for ' + (Array.isArray(classSections) ? classSections.join(', ') : classSections) + '.');
+    }
+  }
+}
+
+function findEpisodicEventById_(eventId) {
+  // Episodic_Events row by Event_ID, or null. Returns the row's fields plus rowIndex.
+  const sheet = getOrCreateEpisodicEventsSheet_();
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return null;
+  const h = data[0];
+  const c = {
+    id: h.indexOf('Event_ID'), name: h.indexOf('Event_Name'), date: h.indexOf('Event_Date'),
+    cat: h.indexOf('Category'), hrs: h.indexOf('Hours'), cls: h.indexOf('Class_Sections'),
+    user: h.indexOf('Username'), rec: h.indexOf('REC_ID')
+  };
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][c.id]) === String(eventId)) {
+      return {
+        rowIndex: i + 1,
+        eventId: data[i][c.id],
+        eventName: data[i][c.name],
+        eventDate: normalizeYMD_(data[i][c.date]),
+        category: data[i][c.cat],
+        hours: data[i][c.hrs],
+        classSections: String(data[i][c.cls] || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean),
+        username: String(data[i][c.user] || ''),
+        recId: c.rec !== -1 ? String(data[i][c.rec] || '').trim() : ''
+      };
+    }
+  }
+  return null;
+}
+
+function findEpisodicEvent_(eventName, date, classSection, schoolRecId) {
+  // The event with this name + date whose class list contains the class and
+  // whose school matches (blank REC_ID = any school), or null.
+  const sheet = getOrCreateEpisodicEventsSheet_();
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return null;
+  const h = data[0];
+  const c = {
+    id: h.indexOf('Event_ID'), name: h.indexOf('Event_Name'), date: h.indexOf('Event_Date'),
+    cat: h.indexOf('Category'), hrs: h.indexOf('Hours'), cls: h.indexOf('Class_Sections'),
+    user: h.indexOf('Username'), rec: h.indexOf('REC_ID')
+  };
+  const wantDate = normalizeYMD_(date);
+  const wantName = String(eventName || '').trim().toLowerCase();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][c.name] || '').trim().toLowerCase() !== wantName) continue;
+    if (normalizeYMD_(data[i][c.date]) !== wantDate) continue;
+    const sections = String(data[i][c.cls] || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    if (sections.indexOf(classSection) === -1) continue;
+    if (!rowRecMatches_(c.rec !== -1 ? data[i][c.rec] : '', schoolRecId)) continue;
+    return {
+      rowIndex: i + 1,
+      eventId: data[i][c.id],
+      eventName: data[i][c.name],
+      eventDate: normalizeYMD_(data[i][c.date]),
+      category: data[i][c.cat],
+      hours: data[i][c.hrs],
+      classSections: sections,
+      username: String(data[i][c.user] || ''),
+      recId: c.rec !== -1 ? String(data[i][c.rec] || '').trim() : ''
+    };
+  }
+  return null;
+}
+
+function markedSectionsForEvent_(eventName, eventDate, schoolRecId) {
+  // Class-sections with Student_Attendance rows under this event (name + date,
+  // this school only). Used to block deleting an event — or removing a class
+  // from it — after attendance was marked.
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Student_Attendance');
+  if (!sheet) return [];
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+  const h = data[0];
+  const dateCol = h.indexOf('Date');
+  const classCol = h.indexOf('Class_Section');
+  const eventCol = h.indexOf('Event_Name');
+  const recCol = h.indexOf('REC_ID');
+  if (dateCol === -1 || classCol === -1 || eventCol === -1) return [];
+  const wantDate = normalizeYMD_(eventDate);
+  const wantName = String(eventName || '').trim();
+  const marked = new Set();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][eventCol] || '').trim() !== wantName) continue;
+    let rowDate;
+    try { rowDate = new Date(data[i][dateCol]).toLocaleDateString('en-CA'); } catch (e) { continue; }
+    if (rowDate !== wantDate) continue;
+    if (!rowRecMatches_(recCol !== -1 ? data[i][recCol] : '', schoolRecId)) continue;
+    if (data[i][classCol]) marked.add(data[i][classCol]);
+  }
+  return Array.from(marked);
+}
 
 // =============== REPORT FUNCTIONS ===============
 
@@ -2740,7 +3214,7 @@ function workingDateSet_(setupRows, classSection, startYMD, endYMD) {
 
 // Daily_Hours_Setup dates in [startYMD, endYMD] for one class-section, as a set.
 // Returns {} when the sheet is missing (reports must not die on missing setup).
-function getWorkingDatesInRange_(classSection, startYMD, endYMD) {
+function getWorkingDatesInRange_(classSection, startYMD, endYMD, schoolRecId) {
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Daily_Hours_Setup');
     if (!sheet) return {};
@@ -2749,10 +3223,14 @@ function getWorkingDatesInRange_(classSection, startYMD, endYMD) {
     const h = data[0].map(function (x) { return String(x).trim(); });
     const dateCol = h.indexOf('Date');
     const clsCol = h.indexOf('Class_Section');
+    const recCol = h.indexOf('REC_ID');
     const dCol = dateCol !== -1 ? dateCol : 0;
     const cCol = clsCol !== -1 ? clsCol : 1;
     const setupRows = [];
     for (let i = 1; i < data.length; i++) {
+      // v5.8 (O3): only this school's setup rows (blank REC_ID = any school;
+      // no school passed = old behaviour, every row counts).
+      if (!rowRecMatches_(recCol !== -1 ? data[i][recCol] : '', schoolRecId)) continue;
       setupRows.push({ dateYMD: normalizeYMD_(data[i][dCol]), classSection: data[i][cCol] });
     }
     return workingDateSet_(setupRows, classSection, startYMD, endYMD);
@@ -2861,11 +3339,12 @@ function generateStudentAttendanceReport(date, classSection, termId, recId, user
     // Reports are scoped to the teacher's assignments: a direct call can never
     // show a class the user is not assigned to (the pickers already list
     // assigned classes only; getSummaryData enforces the same rule).
-    if (username) {
-      const assigned = getAssignedClassSections(username);
-      if (!isClassSectionAssigned_(assigned, classSection)) {
-        throw new Error('You are not assigned to class ' + classSection + '.');
-      }
+    // v5.6: a username is required — a call with no username is refused, not
+    // silently allowed.
+    if (!username) throw new Error('Please log in again to view this report.');
+    const assigned = getAssignedClassSections(username, recId);
+    if (!isClassSectionAssigned_(assigned, classSection)) {
+      throw new Error('You are not assigned to class ' + classSection + '.');
     }
 
     // Term guard (portal rule): when a term is picked, the date must lie inside
@@ -2890,6 +3369,7 @@ function generateStudentAttendanceReport(date, classSection, termId, recId, user
     const sectionCol = shm.get('Student_Section');
     const dojCol = shm.has('Date_of_Joining') ? shm.get('Date_of_Joining') : -1;
     const inactCol = shm.has('Inactive_Date') ? shm.get('Inactive_Date') : -1;
+    const recCol = shm.has('REC_ID') ? shm.get('REC_ID') : -1;
     if (stdIdCol === undefined || nameCol === undefined || classCol === undefined || sectionCol === undefined) {
       throw new Error('Required columns missing in Student_Data sheet');
     }
@@ -2899,6 +3379,9 @@ function generateStudentAttendanceReport(date, classSection, termId, recId, user
       const row = studentData[i];
       if (String(row[classCol] || '').trim() !== className) continue;
       if (String(row[sectionCol] || '').trim() !== section) continue;
+      // v5.8 (O3): only this school's students (blank REC_ID = any school,
+      // so rows from before REC_ID was recorded still show).
+      if (recCol !== -1 && !rowRecMatches_(row[recCol], recId)) continue;
       const dojYMD = dojCol !== -1 ? normalizeYMD_(row[dojCol]) : '';
       const inactYMD = inactCol !== -1 ? normalizeYMD_(row[inactCol]) : '';
       if (!isEnrolledOnYMD_(targetDate, dojYMD, inactYMD)) continue;
@@ -2920,6 +3403,7 @@ function generateStudentAttendanceReport(date, classSection, termId, recId, user
     const aSectionCol = headerMap.get('Student_Section');
     const aHoursCol = headerMap.has('Hours') ? headerMap.get('Hours') : -1;
     const aTypeCol = headerMap.has('Attendance_Type') ? headerMap.get('Attendance_Type') : -1;
+    const aRecCol = headerMap.has('REC_ID') ? headerMap.get('REC_ID') : -1;
     if (aStdCol === undefined || aDateCol === undefined || aStatusCol === undefined || aClassCol === undefined || aSectionCol === undefined) {
       throw new Error('Required columns missing in Student_Attendance sheet');
     }
@@ -2929,6 +3413,10 @@ function generateStudentAttendanceReport(date, classSection, termId, recId, user
       const row = attendanceData[i];
       if (String(row[aClassCol] || '').trim() !== className) continue;
       if (String(row[aSectionCol] || '').trim() !== section) continue;
+      // v5.8 (O3): only this school's attendance rows count — without this,
+      // a same-Std_ID namesake at another school would feed this student's
+      // status (the roster filter alone cannot fix the counts).
+      if (aRecCol !== -1 && !rowRecMatches_(row[aRecCol], recId)) continue;
       if (normalizeYMD_(row[aDateCol]) !== targetDate) continue;
       dayRows.push({
         stdId: row[aStdCol],
@@ -2942,8 +3430,9 @@ function generateStudentAttendanceReport(date, classSection, termId, recId, user
     // ---- Working hours for the day (Daily_Hours_Setup, normal type) ----
     let workingHours = 0;
     try {
-      let wh = checkDailyHours(date, classSection, 'normal');
-      if (!wh || !wh.exists) wh = checkDailyHours(date, classSection);
+      // v5.8 (O3): working hours from this school's setup rows only.
+      let wh = checkDailyHours(date, classSection, 'normal', recId);
+      if (!wh || !wh.exists) wh = checkDailyHours(date, classSection, null, recId);
       if (wh && wh.exists && !isNaN(Number(wh.hours))) workingHours = Number(wh.hours);
     } catch (e) {
       workingHours = 0; // no setup sheet/row: report still works, working hours 0
@@ -3020,11 +3509,12 @@ function generateStudentMonthlySummary(studentId, month, year, termId, recId, us
 
     // Reports are scoped to the teacher's assignments (same rule as the daily
     // report and getSummaryData).
-    if (username) {
-      const assigned = getAssignedClassSections(username);
-      if (!isClassSectionAssigned_(assigned, classSection)) {
-        throw new Error('You are not assigned to class ' + classSection + '.');
-      }
+    // v5.6: a username is required — a call with no username is refused, not
+    // silently allowed.
+    if (!username) throw new Error('Please log in again to view this report.');
+    const assigned = getAssignedClassSections(username, recId);
+    if (!isClassSectionAssigned_(assigned, classSection)) {
+      throw new Error('You are not assigned to class ' + classSection + '.');
     }
 
     // Get attendance data for the month
@@ -3162,11 +3652,12 @@ function generateStudentDayWiseReport(month, year, classSection, termId, recId, 
     // Reports are scoped to the teacher's assignments: a direct call can never
     // show a class the user is not assigned to (the pickers already list
     // assigned classes only; same rule as the v3 Daily/Monthly reports).
-    if (username) {
-      const assigned = getAssignedClassSections(username);
-      if (!isClassSectionAssigned_(assigned, classSection)) {
-        throw new Error('You are not assigned to class ' + classSection + '.');
-      }
+    // v5.6: a username is required — a call with no username is refused, not
+    // silently allowed.
+    if (!username) throw new Error('Please log in again to view this report.');
+    const assigned = getAssignedClassSections(username, recId);
+    if (!isClassSectionAssigned_(assigned, classSection)) {
+      throw new Error('You are not assigned to class ' + classSection + '.');
     }
 
     month = Number(month); year = Number(year);
@@ -3215,6 +3706,7 @@ function generateStudentDayWiseReport(month, year, classSection, termId, recId, 
     const sectionCol = shm.get('Student_Section');
     const dojCol = shm.has('Date_of_Joining') ? shm.get('Date_of_Joining') : -1;
     const inactCol = shm.has('Inactive_Date') ? shm.get('Inactive_Date') : -1;
+    const recCol = shm.has('REC_ID') ? shm.get('REC_ID') : -1;
     if (stdIdCol === undefined || nameCol === undefined || classCol === undefined || sectionCol === undefined) {
       throw new Error('Required columns missing in Student_Data sheet');
     }
@@ -3224,6 +3716,8 @@ function generateStudentDayWiseReport(month, year, classSection, termId, recId, 
       const row = studentData[i];
       if (String(row[classCol] || '').trim() !== className) continue;
       if (String(row[sectionCol] || '').trim() !== section) continue;
+      // v5.8 (O3): only this school's students (blank REC_ID = any school).
+      if (recCol !== -1 && !rowRecMatches_(row[recCol], recId)) continue;
       const dojYMD = dojCol !== -1 ? normalizeYMD_(row[dojCol]) : '';
       const inactYMD = inactCol !== -1 ? normalizeYMD_(row[inactCol]) : '';
       if (!isEnrolledInMonthYMD_(monthStartYMD, monthEndYMD, dojYMD, inactYMD)) continue;
@@ -3245,6 +3739,7 @@ function generateStudentDayWiseReport(month, year, classSection, termId, recId, 
     const aSectionCol = headerMap.get('Student_Section');
     const aHoursCol = headerMap.has('Hours') ? headerMap.get('Hours') : -1;
     const aTypeCol = headerMap.has('Attendance_Type') ? headerMap.get('Attendance_Type') : -1;
+    const aRecCol = headerMap.has('REC_ID') ? headerMap.get('REC_ID') : -1;
     if (aStdCol === undefined || aDateCol === undefined || aStatusCol === undefined || aClassCol === undefined || aSectionCol === undefined) {
       throw new Error('Required columns missing in Student_Attendance sheet');
     }
@@ -3254,6 +3749,8 @@ function generateStudentDayWiseReport(month, year, classSection, termId, recId, 
       const row = attendanceData[i];
       if (String(row[aClassCol] || '').trim() !== className) continue;
       if (String(row[aSectionCol] || '').trim() !== section) continue;
+      // v5.8 (O3): only this school's attendance rows count.
+      if (aRecCol !== -1 && !rowRecMatches_(row[aRecCol], recId)) continue;
       const dateYMD = normalizeYMD_(row[aDateCol]);
       if (!dateYMD || dateYMD < monthStartYMD || dateYMD > monthEndYMD) continue;
       const sid = String(row[aStdCol] || '').trim();
@@ -3269,7 +3766,8 @@ function generateStudentDayWiseReport(month, year, classSection, termId, recId, 
     }
 
     // ---- Working days in the (term-intersected) month ----
-    const workingSet = getWorkingDatesInRange_(classSection, effStartYMD, effEndYMD);
+    // v5.8 (O3): working days from this school's setup rows only.
+    const workingSet = getWorkingDatesInRange_(classSection, effStartYMD, effEndYMD, recId);
     const workingDays = Object.keys(workingSet).length;
 
     // ---- Build the grid: one row per student, one cell per day ----
@@ -5009,16 +5507,44 @@ function createEpisodicEvent(payload) {
         !payload.hours || !payload.classSections || payload.classSections.length === 0) {
       throw new Error('All fields are required.');
     }
+    // v5.6: caller verification, assignment for EVERY listed class, school from
+    // the Users row, and full input validation (future dates ARE allowed here —
+    // events are planned ahead).
+    const caller = requireTeacherCaller_(payload.username, payload.recId);
+    const schoolRecId = caller.recId || String(payload.recId || '').trim();
+    requireAssignedClasses_(payload.username, payload.classSections, schoolRecId);
+    requirePermissionFlag_(payload.username, 'canManageEpisodicEvents');
+    const evDate = String(payload.date).trim();
+    if (!isRealYMD_(evDate)) throw new Error('Invalid event date: ' + payload.date + '. Use a real yyyy-MM-dd date.');
+    validateHoursValue_(payload.hours, 'episodic');
+    validateCategoryForClass_(payload.category, 'episodic', payload.classSections);
     const sheet = getOrCreateEpisodicEventsSheet_();
+    // Duplicate: same name (case-insensitive) + same date + an overlapping class.
+    const evData = sheet.getDataRange().getValues();
+    if (evData.length > 1) {
+      const evH = evData[0];
+      const evNameCol = evH.indexOf('Event_Name'), evDateCol = evH.indexOf('Event_Date'),
+            evClsCol = evH.indexOf('Class_Sections'), evRecCol = evH.indexOf('REC_ID');
+      const wantName = String(payload.eventName).trim().toLowerCase();
+      for (let i = 1; i < evData.length; i++) {
+        if (String(evData[i][evNameCol] || '').trim().toLowerCase() !== wantName) continue;
+        if (normalizeYMD_(evData[i][evDateCol]) !== evDate) continue;
+        const existingCls = String(evData[i][evClsCol] || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        const overlap = payload.classSections.filter(function (cs) { return existingCls.indexOf(cs) !== -1; });
+        if (overlap.length === 0) continue;
+        if (!rowRecMatches_(evRecCol !== -1 ? evData[i][evRecCol] : '', schoolRecId)) continue;
+        throw new Error('An event named "' + payload.eventName + '" already exists on ' + evDate + ' for ' + overlap.join(', ') + '.');
+      }
+    }
     sheet.appendRow([
       Utilities.getUuid(),
       payload.eventName,
-      payload.date,                        // YYYY-MM-DD
+      evDate,
       payload.category,
       payload.hours,
       payload.classSections.join(','),
       payload.username,
-      payload.recId || '',
+      schoolRecId,
       new Date().toLocaleString()
     ]);
     SpreadsheetApp.flush();
@@ -5055,26 +5581,34 @@ function getEpisodicEvents(username) {
 }
 
 // DELETE (Event_ID se)
-function deleteEpisodicEvent(eventId) {
+// DELETE (Event_ID se) — v5.6: caller verified, creator-or-admin only, and
+// refused when attendance is already marked under the event.
+function deleteEpisodicEvent(eventId, username) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) throw new Error('System busy. Please try again.');
   try {
-    const sheet = getOrCreateEpisodicEventsSheet_();
-    const data = sheet.getDataRange().getValues();
-    const idCol = data[0].indexOf('Event_ID');
-    for (let i = 1; i < data.length; i++) {
-      if (String(data[i][idCol]) === String(eventId)) {
-        sheet.deleteRow(i + 1);
-        SpreadsheetApp.flush();
-        return { success: true };
-      }
+    const ev = findEpisodicEventById_(eventId);
+    if (!ev) return { success: false, message: 'Event not found' };
+    const caller = requireTeacherCaller_(username, ev.recId);
+    const schoolRecId = caller.recId || ev.recId || '';
+    requirePermissionFlag_(username, 'canManageEpisodicEvents');
+    if (!rowRecMatches_(ev.recId, schoolRecId)) return { success: false, message: 'Event not found' };
+    if (ev.username !== username && caller.userType.toLowerCase() !== 'admin') {
+      return { success: false, message: 'Only the teacher who created this event (or an administrator) can delete it.' };
     }
-    return { success: false, message: 'Event not found' };
+    if (markedSectionsForEvent_(ev.eventName, ev.eventDate, schoolRecId).length > 0) {
+      return { success: false, message: 'Attendance has already been marked for this event, so it cannot be deleted.' };
+    }
+    const sheet = getOrCreateEpisodicEventsSheet_();
+    sheet.deleteRow(ev.rowIndex);
+    SpreadsheetApp.flush();
+    return { success: true };
+  } catch (e) {
+    return { success: false, message: e.message };
   } finally {
     lock.releaseLock();
   }
 }
-
 // Ek date + class-section ke liye events (Episodic Hours page ke dropdown ke liye)
 function getEpisodicEventsForDate(classSection, date) {
   const sheet = getOrCreateEpisodicEventsSheet_();
@@ -5102,31 +5636,43 @@ function getEpisodicEventsForDate(classSection, date) {
 }
 
 // Update: sirf Class_Sections change hote hain (baaki fields lock hain)
-function updateEpisodicEvent(eventId, classSections) {
+// Update: sirf Class_Sections change hote hain (baaki fields lock hain)
+// v5.6: caller verified, creator-or-admin only, every new class assigned,
+// and a class with marked attendance cannot be removed.
+function updateEpisodicEvent(eventId, classSections, username) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) throw new Error('System busy. Please try again.');
   try {
     if (!classSections || classSections.length === 0) throw new Error('At least one class section is required.');
+    const ev = findEpisodicEventById_(eventId);
+    if (!ev) return { success: false, message: 'Event not found' };
+    const caller = requireTeacherCaller_(username, ev.recId);
+    const schoolRecId = caller.recId || ev.recId || '';
+    requirePermissionFlag_(username, 'canManageEpisodicEvents');
+    requireAssignedClasses_(username, classSections, schoolRecId);
+    if (!rowRecMatches_(ev.recId, schoolRecId)) return { success: false, message: 'Event not found' };
+    if (ev.username !== username && caller.userType.toLowerCase() !== 'admin') {
+      return { success: false, message: 'Only the teacher who created this event (or an administrator) can change it.' };
+    }
+    const marked = markedSectionsForEvent_(ev.eventName, ev.eventDate, schoolRecId);
+    const stranded = marked.filter(function (s) { return classSections.indexOf(s) === -1; });
+    if (stranded.length > 0) {
+      return { success: false, message: 'Attendance is already marked for ' + stranded.join(', ') + ' under this event. Those classes cannot be removed.' };
+    }
     const sheet = getOrCreateEpisodicEventsSheet_();
-    const data = sheet.getDataRange().getValues();
-    const h = data[0];
-    const idCol = h.indexOf('Event_ID');
+    const h = sheet.getDataRange().getValues()[0];
     const clsCol = h.indexOf('Class_Sections');
     const tsCol = h.indexOf('Timestamp');
-    for (let i = 1; i < data.length; i++) {
-      if (String(data[i][idCol]) === String(eventId)) {
-        sheet.getRange(i + 1, clsCol + 1).setValue(classSections.join(','));
-        if (tsCol !== -1) sheet.getRange(i + 1, tsCol + 1).setValue(new Date().toLocaleString());
-        SpreadsheetApp.flush();
-        return { success: true };
-      }
-    }
-    return { success: false, message: 'Event not found' };
+    sheet.getRange(ev.rowIndex, clsCol + 1).setValue(classSections.join(','));
+    if (tsCol !== -1) sheet.getRange(ev.rowIndex, tsCol + 1).setValue(new Date().toLocaleString());
+    SpreadsheetApp.flush();
+    return { success: true };
+  } catch (e) {
+    return { success: false, message: e.message };
   } finally {
     lock.releaseLock();
   }
 }
-
 // Is event ke liye jin class-sections ki attendance already mark ho chuki hai (lock karne ke liye)
 function getMarkedClassSectionsForEvent(eventName, date) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Student_Attendance');
@@ -5142,7 +5688,7 @@ function getMarkedClassSectionsForEvent(eventName, date) {
   const target = normalizeYMD_(date);
   const marked = new Set();
   for (let i = 1; i < data.length; i++) {
-    if (typeCol !== -1 && data[i][typeCol] !== 'Episodic') continue;
+    if (typeCol !== -1 && String(data[i][typeCol] || '').trim().toLowerCase() !== 'episodic') continue;
     if (String(data[i][eventCol]) !== String(eventName)) continue;
     let rowDate;
     try { rowDate = new Date(data[i][dateCol]).toLocaleDateString('en-CA'); } catch (e) { continue; }
@@ -5382,6 +5928,9 @@ function checkDateInTerm(classSection, termId, date) {
 
 
 function TEST_STEP1() {
+  // v5.6: reports refuse calls with no username — use a real teacher username
+  // assigned to student 3543's class.
+  var TEST_USERNAME = 'REPLACE_WITH_A_TEACHER_USERNAME';
   Logger.log('=== A. checkDateInTerm — I-A, 2025-2026, 2025-11-15 (expect inside:true) ===');
   Logger.log(JSON.stringify(checkDateInTerm('I-A', '2025-2026', '2025-11-15'), null, 2));
 
@@ -5396,12 +5945,12 @@ function TEST_STEP1() {
 
   // Replace 3543 with a real Std_ID that has attendance in Oct 2025
   Logger.log('=== E. Monthly — no term (should behave like today) ===');
-  Logger.log(JSON.stringify(generateStudentMonthlySummary('3543', 10, 2025), null, 2));
+  Logger.log(JSON.stringify(generateStudentMonthlySummary('3543', 10, 2025, null, null, TEST_USERNAME), null, 2));
 
   Logger.log('=== F. Monthly — WITH term 2025-2026, Oct 2025 (expect same counts) ===');
-  Logger.log(JSON.stringify(generateStudentMonthlySummary('3543', 10, 2025, '2025-2026'), null, 2));
+  Logger.log(JSON.stringify(generateStudentMonthlySummary('3543', 10, 2025, '2025-2026', null, TEST_USERNAME), null, 2));
 
   Logger.log('=== G. Monthly — WITH term 2025-2026, Mar 2024 (expect 0s + warning) ===');
-  Logger.log(JSON.stringify(generateStudentMonthlySummary('3543', 3, 2024, '2025-2026'), null, 2));
+  Logger.log(JSON.stringify(generateStudentMonthlySummary('3543', 3, 2024, '2025-2026', null, TEST_USERNAME), null, 2));
 }
 

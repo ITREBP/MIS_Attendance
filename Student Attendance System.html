@@ -2975,7 +2975,7 @@ function loadEpisodicCategories() {
       console.error("Error:", err);
       categorySelect.innerHTML = '<option value="" disabled selected>Error loading</option>';
     })
-    .getEpisodicCategories();
+    .getEpisodicCategories(currentUser ? currentUser.classSection : null);
 }
 
 function loadEpisodicHoursConfig() {
@@ -3444,7 +3444,7 @@ function confirmDeleteEpisodicEvent(eventId, eventName) {
           }
         })
         .withFailureHandler(err => { showLoading(false); showPopup("Error", err.message); })
-        .deleteEpisodicEvent(eventId);
+        .deleteEpisodicEvent(eventId, currentUser.username);
     })
     .withFailureHandler(err => { showLoading(false); showPopup("Error", err.message); })
     .getMarkedClassSectionsForEvent(ev.eventName, ev.date);
@@ -3513,6 +3513,8 @@ function openEpisodicEventPopup() {
   populateEpisodicEventDates();
   populateEpisodicEventClassSections();
   populateEpisodicEventCategoriesHours();
+  const evClsSel = document.getElementById("eventPopupClassSections");
+  if (evClsSel) evClsSel.onchange = loadEpisodicEventCategories;   // v5.5: categories follow the picked sections
   document.getElementById("episodicEventPopup").style.display = "block";
   document.getElementById("modalBackdrop").classList.add("active");
 }
@@ -3595,6 +3597,24 @@ function filterEventPopupClassSections() {
   });
 }
 
+// v5.5: reload the event-popup category list for the class-sections currently picked.
+// A category shows only when it applies to EVERY picked section; nothing picked = all categories.
+// Keeps the picked category when it is still in the new list, otherwise resets to the placeholder.
+function loadEpisodicEventCategories() {
+  const catSel = document.getElementById("eventPopupCategory");
+  const clsSel = document.getElementById("eventPopupClassSections");
+  const keep = catSel ? catSel.value : '';
+  const picked = clsSel ? Array.from(clsSel.selectedOptions).map(o => o.value) : [];
+  if (catSel) catSel.innerHTML = '<option value="" disabled selected>Loading...</option>';
+  google.script.run.withSuccessHandler(cats => {
+    catSel.innerHTML = '<option value="" disabled selected>Select Category</option>';
+    cats.forEach(c => catSel.appendChild(new Option(c, c)));
+    if (keep && cats.indexOf(keep) !== -1) catSel.value = keep;
+  }).withFailureHandler(() => {
+    catSel.innerHTML = '<option value="" disabled selected>Error loading</option>';
+  }).getEpisodicCategories(picked);
+}
+
 function populateEpisodicEventCategoriesHours() {
   const catSel = document.getElementById("eventPopupCategory");
   const hrSel = document.getElementById("eventPopupHours");
@@ -3612,10 +3632,7 @@ function populateEpisodicEventCategoriesHours() {
   catSel.innerHTML = '<option value="" disabled selected>Loading...</option>';
   hrSel.innerHTML = '<option value="" disabled selected>Loading...</option>';
 
-  google.script.run.withSuccessHandler(cats => {
-    catSel.innerHTML = '<option value="" disabled selected>Select Category</option>';
-    cats.forEach(c => catSel.appendChild(new Option(c, c)));
-  }).getEpisodicCategories();
+  loadEpisodicEventCategories();
 
   google.script.run.withSuccessHandler(config => {
     hrSel.innerHTML = '<option value="" disabled selected>Select Hours</option>';
@@ -3667,7 +3684,7 @@ document.getElementById("episodicEventForm")?.addEventListener("submit", functio
         }
       })
       .withFailureHandler(err => { showLoading(false); showEventPopupError(err.message); })
-      .updateEpisodicEvent(editingEventId, classSections);
+      .updateEpisodicEvent(editingEventId, classSections, currentUser.username);
     return;
   }
 
@@ -4086,7 +4103,9 @@ function loginSuccess(user) {
   setTimeout(() => showPopup("Success", `Welcome ${user.teacherName}!`), 100);
 }
             })
-            .getAssignedClassSections(user.username); 
+            // v5.8 (F4): pass the logged-in school (user.recId) so a two-school
+            // teacher is only offered the classes assigned at that school.
+            .getAssignedClassSections(user.username, user.recId);
         })
         .getUserPermissions(user.username);
     })
@@ -4260,7 +4279,7 @@ function showSingleHoursSetup(date, classSection, callback, deferSave = false) {
     showLoading(false);
     popup.style.display = "block"; 
     backdrop.classList.add("active"); 
-  }); 
+  }, classSection); 
   let form = document.getElementById("singleHoursForm"); 
   const submitHandler = (e) => { 
     e.preventDefault(); 
@@ -4298,7 +4317,7 @@ function showSingleHoursSetup(date, classSection, callback, deferSave = false) {
         showLoading(false); 
         showPopup("Error", err.message); 
       })
-      .setDailyHours([{ date, classSection, category, hours, teacherId: currentUser.username }], 'normal', currentUser.recId); 
+      .setDailyHours([{ date, classSection, category, hours, teacherId: currentUser.username }], 'normal', currentUser.recId, currentUser.username); 
   }; 
     form.onsubmit = submitHandler;
 }
@@ -4310,7 +4329,19 @@ function closeSingleHoursSetup() {
   document.getElementById("modalBackdrop").classList.remove("active");
 }
 
-function populateCategoriesAndHours(catId, hrId, onReady) { 
+// v5.5: true when the teacher has already picked a category (single select or multi-category checkboxes).
+// The batch screens only re-filter the category list while nothing is picked, so a committed pick is never yanked.
+function hasPickedCategory(catSelId, multiBoxId) {
+  const sel = document.getElementById(catSelId);
+  if (sel && sel.value) return true;
+  if (multiBoxId) {
+    const box = document.getElementById(multiBoxId);
+    if (box && box.querySelector('.setup-cat-chk:checked')) return true;
+  }
+  return false;
+}
+
+function populateCategoriesAndHours(catId, hrId, onReady, classSection) { 
   let catSelect = document.getElementById(catId), hrSelect = document.getElementById(hrId); 
   catSelect.innerHTML = '<option disabled selected>Loading...</option>'; 
   hrSelect.innerHTML = '<option disabled selected>Loading...</option>'; 
@@ -4320,7 +4351,7 @@ function populateCategoriesAndHours(catId, hrId, onReady) {
     catSelect.innerHTML = '<option value="" disabled selected>Select Category</option>';
     cats.forEach(c => catSelect.appendChild(new Option(c, c))); 
     done();
-  }).withFailureHandler(done).getActiveCategories('normal');
+  }).withFailureHandler(done).getActiveCategories('normal', classSection);
   google.script.run.withSuccessHandler(hrs => { 
     hrSelect.innerHTML = '<option value="" disabled selected>Select Hours</option>'; 
     hrs.forEach(h => hrSelect.appendChild(new Option(h, h))); 
@@ -4446,6 +4477,19 @@ function showBatchHoursFromStatus() {
       .getMarkedClassSections(date);
   });
 
+  // v5.5: categories follow the picked class-sections (only while no category is picked yet).
+  batchSelect.onchange = () => {
+    if (hasPickedCategory("batchCategory", "batchMultiCats")) return;
+    const picked = Array.from(batchSelect.selectedOptions).map(o => o.value);
+    const catSel = document.getElementById("batchCategory");
+    const keep = catSel ? catSel.value : '';
+    google.script.run.withSuccessHandler(cats => {
+      catSel.innerHTML = '<option value="" disabled selected>Select Category</option>';
+      cats.forEach(c => catSel.appendChild(new Option(c, c)));
+      if (keep && cats.indexOf(keep) !== -1) catSel.value = keep;
+      initMultiUI(!!userPermissions.canMultiCategory, "batchCategory", "batchHours", "batchMultiBlock", "batchMultiCats");
+    }).getActiveCategories('normal', picked);
+  };
   // Sab load hone ke BAAD page dikhao
   Promise.all([pCats, pHours, pMarked]).then(() => {
     initMultiUI(!!userPermissions.canMultiCategory, "batchCategory", "batchHours", "batchMultiBlock", "batchMultiCats");
@@ -4471,7 +4515,17 @@ function showBatchHoursUpdateForm() {
       popup.style.display = "block"; 
       document.getElementById("modalBackdrop").classList.add("active"); 
     } 
-  });
+  }, document.getElementById("batchUpdateClassSection").value);
+  // v5.5: categories follow the picked class (only while no category is picked yet).
+  const updClsSel = document.getElementById("batchUpdateClassSection");
+  if (updClsSel) {
+    updClsSel.onchange = () => {
+      if (hasPickedCategory("batchUpdateHours", "batchUpdateMultiCats")) return;
+      populateCategoriesAndHours("batchUpdateHours", "batchUpdateCategory", () => {
+        initMultiUI(!!userPermissions.canMultiCategory, "batchUpdateHours", "batchUpdateCategory", "batchUpdateMultiBlock", "batchUpdateMultiCats");
+      }, updClsSel.value);
+    };
+  }
   const form = document.getElementById("batchHoursUpdateForm"); 
   if (form) { 
     form.onsubmit = (e) => { 
@@ -4540,7 +4594,7 @@ document.getElementById("batchHoursForm")?.addEventListener("submit", function(e
   
   showLoading(true, "Saving batch hours...");
   
-  // Updated: Use handleBatchHoursSubmission for better error handling
+  // v5.6: batch hours are saved through setDailyHours (handleBatchHoursSubmission was removed — it had no caller and no validation).
   google.script.run
     .withSuccessHandler(result => {
       showLoading(false);
@@ -4555,7 +4609,7 @@ document.getElementById("batchHoursForm")?.addEventListener("submit", function(e
       showLoading(false);
       showPopup("Error", err.message);
     })
-    .setDailyHours(entries, 'normal', currentUser.recId)
+    .setDailyHours(entries, 'normal', currentUser.recId, currentUser.username)
 });
 
 // ------------------------------  ATTENDANCE FLOW  ------------------------------
@@ -5395,7 +5449,7 @@ html += `
       showLoading(false);
       showPopup("Error", "Failed to load summary: " + (err && err.message ? err.message : err));
     })
-    .getSummaryData(currentUser.username, null, pickedDate);
+    .getSummaryData(currentUser.username, null, pickedDate, currentUser.recId);
 }
 
 function downloadSummaryAsPNG() {
