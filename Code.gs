@@ -1252,7 +1252,10 @@ console.log('Hours check result:', hoursCheck);  // Add this for debugging
       // v5.6: the client-sent category/hours must be valid configured values.
       validateHoursValue_(hours, 'normal');
       validateCategoryForClass_(category, 'normal', class_section);
-      setDailyHours([{ date, classSection: class_section, category, hours, teacherId: username }], 'normal', recId, username);
+      // v5.11: submit auto-create no longer demands canSetupHours — the Setup
+      // Hours tab stays gated in setDailyHours; this only records the day's row
+      // for the teacher's own class (create-only, values validated above).
+      ensureDailyHoursSetup_(date, class_section, category, hours, username, schoolRecId, 'normal');
       hoursCheck = { exists: true, category, hours };
     }
     // v5.6: the day's setup hours must be a usable number.
@@ -2056,13 +2059,9 @@ const episodicHoursExist = checkDailyHours(date, classSection, 'episodic', schoo
 if (!episodicHoursExist.exists) {
   // No episodic hours for this date/class - safe to save
   try {
-        setDailyHours([{
-      date: date,
-      classSection: classSection,
-      category: finalCategory,
-      hours: finalHours,
-      teacherId: username
-    }], 'episodic', recId, username);
+        // v5.11: episodic auto-create, same as markAttendance (create-only, no
+        // canSetupHours demand; the event's hours/category were validated above).
+        ensureDailyHoursSetup_(date, classSection, finalCategory, finalHours, username, schoolRecId, 'episodic');
 Logger.log(`Added episodic hours to Daily_Hours_Setup: ${finalHours} hours (${finalCategory})`);
 
   } catch (e) {
@@ -2196,6 +2195,61 @@ function checkDailyHours(date, classSection, attendanceType = null, schoolRecId)
   }
   return { exists: false };
 }
+// v5.11: internal create-only setup-row writer for the submit auto-create.
+// The public setDailyHours still demands canSetupHours (the Setup Hours tab
+// stays restricted to designated people); a submit must be able to record the
+// day's setup row for the teacher's own assigned class without that flag.
+// Create-only: an existing row is never touched. Not callable from the client
+// (trailing underscore). Callers (markAttendance, markEpisodicAttendance)
+// have already verified the caller, the class assignment, the school and the
+// date; values are validated again here so this writer can never store an
+// invalid row.
+function ensureDailyHoursSetup_(date, classSection, category, hours, teacherId, schoolRecId, attendanceType) {
+  const typeNorm = String(attendanceType || 'normal').trim().toLowerCase();
+  if (typeNorm !== 'normal' && typeNorm !== 'episodic') throw new Error('Invalid attendance type: ' + attendanceType + '. Use normal or episodic.');
+  if (!isRealYMD_(date)) throw new Error('Invalid date: ' + date + '. Use a real yyyy-MM-dd date.');
+  validateHoursValue_(hours, typeNorm);
+  validateCategoryForClass_(category, typeNorm, classSection);
+  const bd_ = parseCategoryBreakdown_(category);
+  if (bd_ && Math.abs(sumBreakdown_(bd_) - Number(hours)) > 0.001) {
+    throw new Error('Category hours breakup is not equal to the total Hours defined.');
+  }
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Daily_Hours_Setup');
+  if (!sheet) throw new Error('Daily_Hours_Setup sheet not found');
+  // Ensure Attendance_Type column exists (same as setDailyHours).
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  let typeColIndex = headers.indexOf('Attendance_Type');
+  if (typeColIndex === -1) {
+    typeColIndex = headers.length;
+    sheet.getRange(1, typeColIndex + 1).setValue('Attendance_Type');
+  }
+  const recIdColIndex = headers.indexOf('REC_ID');
+  const rowWidth = Math.max(7, headers.length, typeColIndex + 1, recIdColIndex + 1);
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('Unable to acquire lock. Please try again.');
+  try {
+    // Re-check under the lock: a racing submit may have created the row first.
+    const existing = checkDailyHours(date, classSection, typeNorm, schoolRecId);
+    if (existing.exists) return { exists: true, category: existing.category, hours: existing.hours };
+    const newRow = new Array(rowWidth).fill('');
+    newRow[0] = date;
+    newRow[1] = classSection;
+    newRow[2] = category;
+    newRow[3] = hours;
+    newRow[4] = teacherId;
+    newRow[5] = new Date();
+    newRow[typeColIndex] = attendanceType;
+    if (recIdColIndex !== -1) newRow[recIdColIndex] = schoolRecId;
+    sheet.getRange(sheet.getLastRow() + 1, 1, 1, rowWidth).setValues([newRow]);
+    SpreadsheetApp.flush();
+    Logger.log('ensureDailyHoursSetup_ created setup row: ' + classSection + ' ' + date + ' ' + hours + ' (' + category + ')');
+    return { exists: true, category: category, hours: hours };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
 function setDailyHours(entries, attendanceType = 'normal', recId = '', username) {
   // v5.6: caller verification, assignment, school, canSetupHours flag and
   // per-entry validation. (Future dates are allowed here — the batch and
@@ -2807,7 +2861,10 @@ function requireTeacherCaller_(username, recId) {
   if (!caller) throw new Error('Unknown user. Please log in again.');
   const type = caller.userType.toLowerCase();
   if (type !== 'teacher' && type !== 'admin') throw new Error('This account is not allowed to change attendance data.');
-  if (caller.status.toLowerCase() !== 'active') throw new Error('Your account is inactive. Please contact the administrator.');
+  // v5.10: a blank Status counts as Active (grandfathered for old users,
+  // same as the login check) — only a literal Inactive is refused.
+  const st = (caller.status || 'Active').trim().toLowerCase();
+  if (st !== 'active') throw new Error('Your account is inactive. Please contact the administrator.');
   return caller;
 }
 
@@ -2817,7 +2874,10 @@ function requireAdminCaller_(username, recId) {
   if (!caller) throw new Error('Unknown user. Please log in again.');
   const type = caller.userType.toLowerCase();
   if (type !== 'admin' && type !== 'superadmin') throw new Error('Only an administrator can do this.');
-  if (caller.status.toLowerCase() !== 'active') throw new Error('Your account is inactive. Please contact the administrator.');
+  // v5.10: a blank Status counts as Active (grandfathered for old users,
+  // same as the login check) — only a literal Inactive is refused.
+  const st = (caller.status || 'Active').trim().toLowerCase();
+  if (st !== 'active') throw new Error('Your account is inactive. Please contact the administrator.');
   return caller;
 }
 
